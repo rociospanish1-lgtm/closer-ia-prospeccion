@@ -1,16 +1,29 @@
 # CLOSER V4.1
 
-Herramienta de prospección para Agencia de Agentes IA: busca negocios locales en Google Maps, analiza su web, genera mensajes y guía el cierre.
+Flujo completo de prospección: buscar negocios en Google Maps → analizar su web → mensajes (email/WhatsApp/llamada) → gestión de objeciones → cobro con Stripe.
 
-## Puesta en marcha
+## Variables de entorno (Vercel > Settings > Environment Variables)
+| Variable | Para qué |
+|---|---|
+| `GOOGLE_PLACES_API_KEY` | Búsqueda de leads (Places API New activada en Google Cloud) |
+| `STRIPE_SECRET_KEY` | Crear el checkout de pago (`sk_test_...` para probar, `sk_live_...` para cobrar) |
+| `PUBLIC_URL` | Opcional. URL pública para las páginas de éxito/cancelación del pago |
+
+## Despliegue
+1. Importa el repo en Vercel (detecta Vite y `/api`).
+2. Añade las variables y redespliega.
+
+## Desarrollo local
 ```bash
 npm install
-npm run dev      # solo frontend; /api/search requiere Vercel
-npx vercel dev   # frontend + API
+cp .env.example .env   # rellena las claves
+npx vercel dev
 ```
 
-## Variables de entorno
-Copia `.env.example` a `.env` y rellena `GOOGLE_PLACES_API_KEY` (Google Places API New). En producción, configúrala en Vercel.
+## Flujo
+1. **Paso 1** Buscar por nicho + ciudad (datos reales de Google Maps). Los leads se guardan en el navegador (`localStorage`).
+2. **Paso 2** "Analizar web automáticamente": detecta WhatsApp, reservas, píxel, schema local, imágenes y tiempo de carga (`/api/analyze`).
+3. **Pasos 3-4** Mensajes y closer.
+4. **Paso 5** Genera un Stripe Checkout (pago único + mensualidad opcional) con `/api/checkout` y lo envías al cliente. Tras pagar, va a `/gracias.html`.
 
-## Datos
-Los leads se guardan en `localStorage` del navegador (clave `closer_leads`).
+Prueba antes el pago con `sk_test_` y la tarjeta `4242 4242 4242 4242`.

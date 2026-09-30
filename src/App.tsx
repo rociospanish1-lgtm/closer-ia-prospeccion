@@ -265,6 +265,36 @@ Si no te interesa, dime "no" y no te molesto más.`);
     setBulk('');
   };
 
+  const [analizando, setAnalizando] = useState(false);
+  const [errorAnalisis, setErrorAnalisis] = useState('');
+
+  const handleAnalizarWeb = async () => {
+    if(!selectedLead || analizando) return;
+    if(!selectedLead.web){ setErrorAnalisis('Este lead no tiene web. Es un hueco en sí mismo: ofrécele web + agente.'); return; }
+    setAnalizando(true);
+    setErrorAnalisis('');
+    try {
+      const r = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: selectedLead.web }),
+      });
+      const data = await r.json();
+      if(!r.ok) throw new Error(data?.error || 'Error analizando la web');
+      setAnalisis(prev=>({
+        ...prev,
+        checks: data.checks,
+        seoScore: data.seoScore,
+        velocidad: data.velocidad,
+        observaciones: `Análisis automático: WhatsApp ${data.detalle.tieneWhatsapp?'sí':'no'}, reservas online ${data.detalle.tieneReservas?'sí':'no'}, píxel/analítica ${data.detalle.tienePixel?'sí':'no'}, schema local ${data.detalle.tieneSchema?'sí':'no'}, ${data.detalle.imagenes} imágenes.`
+      }));
+    } catch(e: any) {
+      setErrorAnalisis(e.message || 'Error de conexión');
+    } finally {
+      setAnalizando(false);
+    }
+  };
+
   const handleBuscarReal = async () => {
     if(!nicho || !ciudad || buscando) return;
     setBuscando(true);
@@ -362,21 +392,40 @@ Si no te interesa, dime "no" y no te molesto más.`);
   const isCloserActive = closerChecks.length >= 2;
   const puedePagar = ESTADOS_ORDEN[estadoCloser] !== undefined && ESTADOS_ORDEN[estadoCloser] >= 5;
 
-  const generarLink = () => {
-    if(!stripeLink){
-      setLinkGenerado(`BIZUM_MANUAL: ${importe}€ - Concepto: ${concepto} - Cliente: ${emailCliente || selectedLead?.nombre} - IBAN/Bizum: [tu número]`);
+  const [generando, setGenerando] = useState(false);
+  const [errorPago, setErrorPago] = useState('');
+  const [mensualidad, setMensualidad] = useState('97');
+
+  const generarLink = async () => {
+    setErrorPago('');
+    if(stripeLink){
+      let base = stripeLink.trim();
+      if(!base.startsWith('http')) base = 'https://' + base;
+      try{
+        const url = new URL(base);
+        if(emailCliente) url.searchParams.set('prefilled_email', emailCliente);
+        url.searchParams.set('client_reference_id', concepto.slice(0,80));
+        setLinkGenerado(url.toString());
+      }catch{
+        setLinkGenerado(base);
+      }
       return;
     }
-    let base = stripeLink.trim();
-    // clean
-    if(!base.startsWith('http')) base = 'https://' + base;
-    try{
-      const url = new URL(base);
-      if(emailCliente) url.searchParams.set('prefilled_email', emailCliente);
-      url.searchParams.set('client_reference_id', concepto.slice(0,80));
-      setLinkGenerado(url.toString());
-    }catch{
-      setLinkGenerado(base + `?prefilled_email=${encodeURIComponent(emailCliente)}&concepto=${encodeURIComponent(concepto)}`);
+    setGenerando(true);
+    try {
+      const r = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ importe, concepto, email: emailCliente, mensualidad, leadId: selectedLead?.id }),
+      });
+      const data = await r.json();
+      if(!r.ok) throw new Error(data?.error || 'Error creando el pago');
+      setLinkGenerado(data.url);
+      if(selectedLead) setLeads(prev=>prev.map(l=>l.id===selectedLead.id ? {...l, estado:'CALIENTE'}:l));
+    } catch(e: any) {
+      setErrorPago((e.message || 'Error de conexión') + ' — puedes pegar un payment link propio abajo o usar Bizum.');
+    } finally {
+      setGenerando(false);
     }
   };
 
@@ -558,6 +607,8 @@ Si no te interesa, dime "no" y no te molesto más.`);
             <div className="col-span-12 lg:col-span-8 space-y-4">
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-5">
                 <div className="flex items-center gap-2 mb-4"><Zap size={16} className="text-[#c6ff00]"/><span className="font-display font-bold">ANÁLISIS RÁPIDO • CHECKLIST OPERATIVO</span></div>
+                <button onClick={handleAnalizarWeb} disabled={!selectedLead || analizando} className="mb-4 w-full disabled:opacity-40 bg-white text-black font-bold text-[12px] py-2.5 rounded-lg flex items-center justify-center gap-2"><Globe size={14}/> {analizando ? 'ANALIZANDO WEB...' : 'ANALIZAR WEB AUTOMÁTICAMENTE'}</button>
+                {errorAnalisis && <div className="mb-3 text-[11px] text-red-400 flex items-center gap-1"><AlertTriangle size={12}/> {errorAnalisis}</div>}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {CHECKLIST_ITEMS.map(item=>{
                     const active = analisis.checks.includes(item.id);
@@ -774,10 +825,12 @@ Si no te interesa, dime "no" y no te molesto más.`);
                   <div><label className="text-[11px] text-white/50">IMPORTE (€) * editable</label><input value={importe} onChange={e=>setImporte(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm font-bold"/></div>
                   <div><label className="text-[11px] text-white/50">EMAIL CLIENTE</label><input value={emailCliente} onChange={e=>setEmailCliente(e.target.value)} placeholder="cliente@empresa.com" className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div>
                   <div className="md:col-span-2"><label className="text-[11px] text-white/50">CONCEPTO * editable</label><input value={concepto} onChange={e=>setConcepto(e.target.value)} className="mt-1 w-full bg-black border border-[#c6ff00]/30 rounded-xl px-3 py-3 text-sm"/></div>
-                  <div className="md:col-span-2"><label className="text-[11px] text-white/50">TU LINK STRIPE REAL (pega tu payment link base)</label><div className="mt-1 flex gap-2"><div className="flex items-center px-3 bg-white/10 rounded-xl border border-white/10"><Link2 size={14}/></div><input value={stripeLink} onChange={e=>setStripeLink(e.target.value)} placeholder="https://buy.stripe.com/..." className="flex-1 bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div><div className="text-[10px] text-white/40 mt-1">Si no tienes Stripe, deja vacío y generará texto para Bizum/manual</div></div>
+                  <div className="md:col-span-2"><label className="text-[11px] text-white/50">LINK STRIPE PROPIO (opcional — si lo dejas vacío se crea un pago automático)</label><div className="mt-1 flex gap-2"><div className="flex items-center px-3 bg-white/10 rounded-xl border border-white/10"><Link2 size={14}/></div><input value={stripeLink} onChange={e=>setStripeLink(e.target.value)} placeholder="https://buy.stripe.com/..." className="flex-1 bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div><div className="text-[10px] text-white/40 mt-1">Vacío = checkout automático con STRIPE_SECRET_KEY</div></div>
                 </div>
 
-                <button onClick={generarLink} className="mt-5 w-full bg-[#c6ff00] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Zap size={16}/> GENERAR LINK OPERATIVO</button>
+                <div className="mt-3"><label className="text-[11px] text-white/50">MENSUALIDAD € (0 = solo pago único)</label><input value={mensualidad} onChange={e=>setMensualidad(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div>
+                <button onClick={generarLink} disabled={generando} className="mt-5 w-full disabled:opacity-50 bg-[#c6ff00] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Zap size={16}/> {generando ? 'CREANDO PAGO...' : 'GENERAR LINK DE PAGO STRIPE'}</button>
+                {errorPago && <div className="mt-2 text-[11px] text-red-400 flex items-center gap-1"><AlertTriangle size={12}/> {errorPago}</div>}
 
                 {linkGenerado && (
                   <div className="mt-4 p-4 rounded-xl bg-black border border-[#c6ff00]/30">
@@ -785,7 +838,7 @@ Si no te interesa, dime "no" y no te molesto más.`);
                     <div className="p-3 bg-white/[0.04] rounded-lg text-[12px] break-all font-mono">{linkGenerado}</div>
                     <div className="flex gap-2 mt-3">
                       <button onClick={()=>copy(linkGenerado)} className="flex-1 bg-white text-black font-bold py-2.5 rounded-lg text-[12px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR LINK</button>
-                      {stripeLink && <a href={linkGenerado} target="_blank" rel="noopener" className="flex-1 bg-[#c6ff00] text-black font-bold py-2.5 rounded-lg text-[12px] flex items-center justify-center gap-2"><Eye size={12}/> ABRIR LINK</a>}
+                      {linkGenerado.startsWith('http') && <a href={linkGenerado} target="_blank" rel="noopener" className="flex-1 bg-[#c6ff00] text-black font-bold py-2.5 rounded-lg text-[12px] flex items-center justify-center gap-2"><Eye size={12}/> ABRIR LINK</a>}
                     </div>
                   </div>
                 )}
