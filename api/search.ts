@@ -1,4 +1,4 @@
-import { requireAuth } from "./_auth";
+import { requireAuth } from "./_auth.js";
 
 export default async function handler(req: any, res: any) {
   if (!requireAuth(req, res)) return;

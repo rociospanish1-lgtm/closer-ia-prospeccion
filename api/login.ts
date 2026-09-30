@@ -1,4 +1,4 @@
-import { makeCookie, clearCookie, passwordOk, requireAuth } from "./_auth";
+import { makeCookie, clearCookie, passwordOk, requireAuth } from "./_auth.js";
 
 export default async function handler(req: any, res: any) {
   // GET: ¿hay sesión válida?

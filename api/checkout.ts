@@ -1,4 +1,4 @@
-import { requireAuth } from "./_auth";
+import { requireAuth } from "./_auth.js";
 
 // Crea una sesión de Stripe Checkout y devuelve la URL de pago.
 export default async function handler(req: any, res: any) {
