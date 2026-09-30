@@ -35,6 +35,11 @@ interface Lead {
   estado: EstadoLead;
   nicho: string;
   ciudad: string;
+  huecos?: string[];
+  seoScore?: number;
+  velocidad?: string;
+  analisisEstado?: 'ok' | 'error';
+  analisisError?: string;
 }
 
 interface Analisis {
@@ -295,6 +300,45 @@ Si no te interesa, dime "no" y no te molesto más.`);
     }
   };
 
+  const [analizandoTodos, setAnalizandoTodos] = useState(false);
+  const [progreso, setProgreso] = useState({ hecho: 0, total: 0 });
+  const [soloHuecos, setSoloHuecos] = useState(false);
+
+  const HUECOS_CLAVE = ['sin_whatsapp', 'sin_reservas'];
+  const puntosHuecos = (l: Lead) => (l.huecos || []).filter(h => HUECOS_CLAVE.includes(h)).length;
+
+  const handleAnalizarTodos = async () => {
+    if(analizandoTodos) return;
+    const pendientes = leads.filter(l => l.web && l.analisisEstado !== 'ok');
+    if(pendientes.length === 0) return;
+    setAnalizandoTodos(true);
+    setProgreso({ hecho: 0, total: pendientes.length });
+    let i = 0;
+    const worker = async () => {
+      while(i < pendientes.length){
+        const l = pendientes[i++];
+        let cambio: Partial<Lead>;
+        try {
+          const r = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: l.web }),
+          });
+          const d = await r.json();
+          cambio = r.ok
+            ? { huecos: d.checks, seoScore: d.seoScore, velocidad: d.velocidad, analisisEstado: 'ok', analisisError: '' }
+            : { analisisEstado: 'error', analisisError: d?.error || 'Error' };
+        } catch {
+          cambio = { analisisEstado: 'error', analisisError: 'Error de conexión' };
+        }
+        setLeads(prev => prev.map(x => x.id === l.id ? { ...x, ...cambio } : x));
+        setProgreso(pr => ({ ...pr, hecho: pr.hecho + 1 }));
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    setAnalizandoTodos(false);
+  };
+
   const handleBuscarReal = async () => {
     if(!nicho || !ciudad || buscando) return;
     setBuscando(true);
@@ -388,6 +432,13 @@ Si no te interesa, dime "no" y no te molesto más.`);
       return mNicho && mCiudad && mKw;
     });
   },[leads, nicho, ciudad, keyword]);
+
+  const visibleLeads = useMemo(()=>{
+    if(!soloHuecos) return filteredLeads;
+    return filteredLeads
+      .filter(l => l.telefono && puntosHuecos(l) > 0)
+      .sort((a,b) => puntosHuecos(b) - puntosHuecos(a) || Number(b.reviews) - Number(a.reviews));
+  },[filteredLeads, soloHuecos]);
 
   const isCloserActive = closerChecks.length >= 2;
   const puedePagar = ESTADOS_ORDEN[estadoCloser] !== undefined && ESTADOS_ORDEN[estadoCloser] >= 5;
@@ -537,9 +588,12 @@ Si no te interesa, dime "no" y no te molesto más.`);
 
               <div className="col-span-12 lg:col-span-8">
                 <div className="rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden">
-                  <div className="p-4 flex items-center justify-between border-b border-white/10">
-                    <div className="flex items-center gap-2"><Building2 size={16} className="text-[#c6ff00]"/><span className="font-display font-bold text-sm">LEADS OPERATIVOS • {filteredLeads.length}</span></div>
-                    <div className="text-[11px] text-white/40">ESTADO INICIAL: NUEVO • EDITABLE</div>
+                  <div className="p-4 flex flex-wrap items-center justify-between gap-2 border-b border-white/10">
+                    <div className="flex items-center gap-2"><Building2 size={16} className="text-[#c6ff00]"/><span className="font-display font-bold text-sm">LEADS OPERATIVOS • {visibleLeads.length}{soloHuecos ? ` de ${filteredLeads.length}` : ''}</span></div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={handleAnalizarTodos} disabled={analizandoTodos} className="px-3 py-1.5 rounded-lg bg-white text-black font-bold text-[11px] disabled:opacity-50">{analizandoTodos ? `ANALIZANDO ${progreso.hecho}/${progreso.total}...` : 'ANALIZAR TODOS'}</button>
+                      <button onClick={()=>setSoloHuecos(v=>!v)} className={`px-3 py-1.5 rounded-lg font-bold text-[11px] border ${soloHuecos ? 'bg-[#c6ff00] text-black border-[#c6ff00]' : 'bg-black text-white/70 border-white/15'}`}>SOLO CON HUECOS</button>
+                    </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-[12px]">
@@ -547,11 +601,18 @@ Si no te interesa, dime "no" y no te molesto más.`);
                         <tr><th className="text-left p-3 font-normal">NOMBRE</th><th className="text-left p-3 font-normal">WEB</th><th className="text-left p-3 font-normal hidden md:table-cell">TEL</th><th className="text-left p-3 font-normal">ESTADO</th><th className="p-3"></th></tr>
                       </thead>
                       <tbody>
-                        {filteredLeads.map(l=>(
+                        {visibleLeads.map(l=>(
                           <tr key={l.id} className={`border-b border-white/[0.05] hover:bg-white/[0.03] ${selectedId===l.id ? 'bg-[#c6ff00]/10' : ''}`}>
                             <td className="p-3">
                               <input value={l.nombre} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, nombre:e.target.value}:x))} className="bg-transparent border border-transparent hover:border-white/20 rounded px-2 py-1 w-full outline-none"/>
                               <div className="text-[10px] text-white/30 px-2 flex items-center gap-1"><MapPin size={10}/>{l.direccion.slice(0,28)} • {l.rating}★ ({l.reviews})</div>
+                              <div className="px-2 pt-1 flex flex-wrap gap-1">
+                                {l.analisisEstado==='ok' && puntosHuecos(l)===0 && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Sin huecos clave</span>}
+                                {l.huecos?.includes('sin_whatsapp') && <span className="px-1.5 py-0.5 rounded bg-[#c6ff00]/20 text-[#c6ff00] text-[10px]">Sin WhatsApp</span>}
+                                {l.huecos?.includes('sin_reservas') && <span className="px-1.5 py-0.5 rounded bg-[#c6ff00]/20 text-[#c6ff00] text-[10px]">Sin reservas</span>}
+                                {l.analisisEstado==='error' && <span title={l.analisisError} className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[10px]">No analizado</span>}
+                                {!l.web && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Sin web</span>}
+                              </div>
                             </td>
                             <td className="p-3"><input value={l.web} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, web:e.target.value}:x))} className="bg-transparent border border-transparent hover:border-white/20 rounded px-2 py-1 w-full outline-none text-[11px] text-[#c6ff00]"/></td>
                             <td className="p-3 hidden md:table-cell"><input value={l.telefono} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, telefono:e.target.value}:x))} className="bg-transparent border border-transparent hover:border-white/20 rounded px-2 py-1 w-full outline-none"/></td>
@@ -562,7 +623,7 @@ Si no te interesa, dime "no" y no te molesto más.`);
                             </td>
                             <td className="p-3">
                               <div className="flex gap-1">
-                                <button onClick={()=>{setSelectedId(l.id); setStep(2);}} className={`px-3 py-1.5 rounded-lg font-bold text-[11px] flex items-center gap-1 ${selectedId===l.id ? 'bg-[#c6ff00] text-black' : 'bg-white text-black hover:bg-white/90'}`}><Eye size={12}/> SEL</button>
+                                <button onClick={()=>{setSelectedId(l.id); if(l.analisisEstado==='ok'){ setAnalisis(prev=>({...prev, checks: l.huecos || [], seoScore: l.seoScore ?? prev.seoScore, velocidad: l.velocidad ?? prev.velocidad})); } setStep(2);}} className={`px-3 py-1.5 rounded-lg font-bold text-[11px] flex items-center gap-1 ${selectedId===l.id ? 'bg-[#c6ff00] text-black' : 'bg-white text-black hover:bg-white/90'}`}><Eye size={12}/> SEL</button>
                                 <button onClick={()=>setLeads(prev=>prev.filter(x=>x.id!==l.id))} className="p-1.5 rounded bg-white/10 hover:bg-red-500/20"><Trash2 size={12}/></button>
                               </div>
                             </td>
@@ -570,7 +631,7 @@ Si no te interesa, dime "no" y no te molesto más.`);
                         ))}
                       </tbody>
                     </table>
-                    {filteredLeads.length===0 && <div className="p-12 text-center text-white/30 text-sm">Sin leads. Usa SIMULAR BÚSQUEDA o AÑADIR MANUAL para empezar HOY.</div>}
+                    {visibleLeads.length===0 && <div className="p-12 text-center text-white/30 text-sm">{soloHuecos ? 'Ningún lead cumple el filtro. Pulsa ANALIZAR TODOS o quita el filtro.' : 'Sin leads. Busca en Google Maps o añade uno manualmente para empezar.'}</div>}
                   </div>
                 </div>
               </div>
