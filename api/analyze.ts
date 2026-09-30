@@ -1,4 +1,4 @@
-import { requireAuth } from "./_auth";
+import { requireAuth } from "./_auth.js";
 
 // Analiza la web de un negocio y devuelve los huecos detectados (ids de CHECKLIST_ITEMS).
 export default async function handler(req: any, res: any) {
