@@ -71,13 +71,20 @@ const ACTIVACION_CHECKS = [
 
 export default function App() {
   const [step, setStep] = useState(1);
+
   const [nicho, setNicho] = useState('Clínica Dental');
   const [ciudad, setCiudad] = useState('Sevilla');
   const [keyword, setKeyword] = useState('');
-  const [leads, setLeads] = useState<Lead[]>([
-    { id: '1', nombre: 'Clínica Dental Sonrisa', web: 'https://clinicasonrisa.es', telefono: '954 123 456', direccion: 'C/ Feria 12, Sevilla', rating: '4.2', reviews: '38', estado: 'NUEVO', nicho: 'Clínica Dental', ciudad: 'Sevilla' }
-  ]);
-  const [selectedId, setSelectedId] = useState<string>('1');
+  const [leads, setLeads] = useState<Lead[]>(() => {
+    try {
+      const saved = localStorage.getItem('closer_leads');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const [buscando, setBuscando] = useState(false);
+  const [errorBusqueda, setErrorBusqueda] = useState('');
+  const [selectedId, setSelectedId] = useState<string>('');
   const [showAdd, setShowAdd] = useState(false);
   const [newLead, setNewLead] = useState<Partial<Lead>>({ nombre: '', web: '', telefono: '', direccion: '', rating: '4.5', reviews: '12', estado: 'NUEVO' });
   const [bulk, setBulk] = useState('');
@@ -108,6 +115,10 @@ export default function App() {
   const [stripeLink, setStripeLink] = useState('');
   const [emailCliente, setEmailCliente] = useState('');
   const [linkGenerado, setLinkGenerado] = useState('');
+
+  useEffect(()=>{
+    try { localStorage.setItem('closer_leads', JSON.stringify(leads)); } catch {}
+  },[leads]);
 
   const selectedLead = useMemo(() => leads.find(l=>l.id===selectedId) || null, [leads, selectedId]);
 
@@ -254,21 +265,39 @@ Si no te interesa, dime "no" y no te molesto más.`);
     setBulk('');
   };
 
-  const handleSimularBusqueda = () => {
-    if(!nicho || !ciudad) return;
-    const kw = keyword ? ` ${keyword}` : '';
-    const demos: Lead[] = [1,2,3].map(i=>({
-      id: `sim-${Date.now()}-${i}`,
-      nombre: `${nicho}${kw} ${ciudad} #${i}`,
-      web: `https://ejemplo${i}-${ciudad.toLowerCase()}.com`,
-      telefono: `95${Math.floor(1000000+Math.random()*8000000)}`,
-      direccion: `Calle ${['Feria','Triana','Nervión'][i%3]} ${i*7}, ${ciudad}`,
-      rating: (3.8 + Math.random()*1.2).toFixed(1),
-      reviews: Math.floor(10+Math.random()*120).toString(),
-      estado: 'NUEVO',
-      nicho, ciudad
-    }));
-    setLeads(prev=>[...demos, ...prev]);
+  const handleBuscarReal = async () => {
+    if(!nicho || !ciudad || buscando) return;
+    setBuscando(true);
+    setErrorBusqueda('');
+    try {
+      const r = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nicho, ciudad, keyword }),
+      });
+      const data = await r.json();
+      if(!r.ok) throw new Error(data?.error || 'Error en la búsqueda');
+      const nuevos: Lead[] = (data.leads || []).map((p: any) => ({
+        id: `g-${p.id}`,
+        nombre: p.name,
+        web: p.web,
+        telefono: p.phone,
+        direccion: p.address,
+        rating: String(p.rating || 0),
+        reviews: String(p.reviews || 0),
+        estado: 'NUEVO' as EstadoLead,
+        nicho, ciudad
+      }));
+      setLeads(prev => {
+        const ids = new Set(prev.map(l => l.id));
+        return [...nuevos.filter(l => !ids.has(l.id)), ...prev];
+      });
+      if(nuevos.length === 0) setErrorBusqueda('Sin resultados para esa búsqueda.');
+    } catch(e: any) {
+      setErrorBusqueda(e.message || 'Error de conexión');
+    } finally {
+      setBuscando(false);
+    }
   };
 
   const detectObjection = (text: string) => {
@@ -422,9 +451,10 @@ Si no te interesa, dime "no" y no te molesto más.`);
                         <input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="implantes" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-[#c6ff00]"/>
                       </div>
                     </div>
+                    {errorBusqueda && <div className="text-[11px] text-red-400 flex items-center gap-1"><AlertTriangle size={12}/> {errorBusqueda}</div>}
                     <div className="flex gap-2 pt-1">
-                      <button onClick={handleSimularBusqueda} className="flex-1 bg-white text-black font-bold text-[12px] py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-white/90">
-                        <Search size={14}/> SIMULAR BÚSQUEDA LOCAL
+                      <button onClick={handleBuscarReal} disabled={buscando} className="flex-1 disabled:opacity-50 bg-white text-black font-bold text-[12px] py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-white/90">
+                        <Search size={14}/> {buscando ? 'BUSCANDO...' : 'BUSCAR EN GOOGLE MAPS'}
                       </button>
                       <button onClick={()=>setShowAdd(!showAdd)} className="px-4 bg-[#c6ff00] text-black font-bold text-[12px] rounded-lg flex items-center gap-1">
                         <Plus size={14}/> MANUAL
