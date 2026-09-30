@@ -1,5 +1,8 @@
+import { requireAuth } from "./_auth";
+
 // Analiza la web de un negocio y devuelve los huecos detectados (ids de CHECKLIST_ITEMS).
 export default async function handler(req: any, res: any) {
+  if (!requireAuth(req, res)) return;
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Método no permitido" });
   }

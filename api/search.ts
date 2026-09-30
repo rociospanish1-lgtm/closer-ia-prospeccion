@@ -1,4 +1,7 @@
+import { requireAuth } from "./_auth";
+
 export default async function handler(req: any, res: any) {
+  if (!requireAuth(req, res)) return;
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Método no permitido" });
   }

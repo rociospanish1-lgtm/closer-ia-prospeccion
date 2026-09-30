@@ -1,5 +1,8 @@
+import { requireAuth } from "./_auth";
+
 // Crea una sesión de Stripe Checkout y devuelve la URL de pago.
 export default async function handler(req: any, res: any) {
+  if (!requireAuth(req, res)) return;
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Método no permitido" });
   }

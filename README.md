@@ -7,6 +7,7 @@ Flujo completo de prospección: buscar negocios en Google Maps → analizar su w
 |---|---|
 | `GOOGLE_PLACES_API_KEY` | Búsqueda de leads (Places API New activada en Google Cloud) |
 | `STRIPE_SECRET_KEY` | Crear el checkout de pago (`sk_test_...` para probar, `sk_live_...` para cobrar) |
+| `APP_PASSWORD` | Contraseña para entrar en la app. Obligatoria: protege la app y las rutas `/api` |
 | `PUBLIC_URL` | Opcional. URL pública para las páginas de éxito/cancelación del pago |
 
 ## Despliegue
