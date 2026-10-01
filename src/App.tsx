@@ -78,7 +78,9 @@ export default function App() {
   const [step, setStep] = useState(1);
   const [miNombre, setMiNombre] = useState(() => { try { return localStorage.getItem('closer_nombre') || 'Rocío'; } catch { return 'Rocío'; } });
   const [miAgencia, setMiAgencia] = useState(() => { try { return localStorage.getItem('closer_agencia') || 'Agencia de Agentes IA'; } catch { return 'Agencia de Agentes IA'; } });
-  useEffect(()=>{ try { localStorage.setItem('closer_nombre', miNombre); localStorage.setItem('closer_agencia', miAgencia); } catch {} },[miNombre, miAgencia]);
+  const [miTelefono, setMiTelefono] = useState(() => { try { return localStorage.getItem('closer_telefono') || ''; } catch { return ''; } });
+  const [miEmail, setMiEmail] = useState(() => { try { return localStorage.getItem('closer_email') || ''; } catch { return ''; } });
+  useEffect(()=>{ try { localStorage.setItem('closer_nombre', miNombre); localStorage.setItem('closer_agencia', miAgencia); localStorage.setItem('closer_telefono', miTelefono); localStorage.setItem('closer_email', miEmail); } catch {} },[miNombre, miAgencia, miTelefono, miEmail]);
 
 
   const [nicho, setNicho] = useState('Clínica Dental');
@@ -203,7 +205,7 @@ ${queHacemos}
 
 Un saludo,
 ${miNombre}
-${miAgencia}`);
+${miAgencia}${miTelefono ? `\nTel.: ${miTelefono}` : ''}${miEmail ? `\nEmail: ${miEmail}` : ''}`);
 
     setWaTpl(`Hola ${nom}, soy ${miNombre} de ${miAgencia}.
 
@@ -211,15 +213,19 @@ ${obs}
 
 ${queHacemos}
 
-¿Os interesaría ver un ejemplo con ${nom}? Si no, dímelo y no insisto.`);
+¿Os interesaría ver un ejemplo con ${nom}? Si no, dímelo y no insisto.
+
+Un saludo,
+${miNombre} · ${miAgencia}`);
 
     setCallTpl(`Guion de llamada: ${nom}
 
 1. Saludo y presentación: "Hola, ¿hablo con ${nom}? Soy ${miNombre}, de ${miAgencia}. ¿Tenéis un minuto?"
 2. Motivo: ${obs}
 3. Qué hacemos: ${queHacemos}
-4. Cierre: "¿Os interesaría ver un ejemplo con ${nom}? Si preferís, os lo mando por WhatsApp y lo miráis con calma."`);
-  },[selectedLead?.id, analisis.oportunidad, analisis.angulo, miNombre, miAgencia]);
+4. Cierre: "¿Os interesaría ver un ejemplo con ${nom}? Si preferís, os lo mando por WhatsApp y lo miráis con calma."
+5. Despedida: "Muchas gracias por vuestro tiempo. Un saludo, y que tengáis un buen día."`);
+  },[selectedLead?.id, analisis.oportunidad, miNombre, miAgencia, miTelefono, miEmail]);
 
   const vozScripts = useMemo(()=>{
     const emp = vozEmpresa || selectedLead?.nombre || 'vuestra clínica';
@@ -694,9 +700,9 @@ ${queHacemos}
                   <div><label className="text-[11px] text-white/50">TRÁFICO EST.</label><input value={analisis.trafico} onChange={e=>setAnalisis({...analisis, trafico:e.target.value})} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-3 mt-5">
-                  <div><label className="text-[11px] text-white/50">OPORTUNIDAD (auto + editable)</label><textarea value={analisis.oportunidad} onChange={e=>setAnalisis({...analisis, oportunidad:e.target.value})} className="mt-1 w-full h-24 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00]"/></div>
-                  <div><label className="text-[11px] text-white/50">ÁNGULO DE VENTA</label><textarea value={analisis.angulo} onChange={e=>setAnalisis({...analisis, angulo:e.target.value})} className="mt-1 w-full h-24 bg-black border border-[#c6ff00]/30 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00] bg-[#c6ff00]/5"/></div>
+                <div className="mt-5">
+                  <label className="text-[11px] text-white/50">LO QUE SE VE EN SU WEB (auto + editable; entra en el mensaje)</label>
+                  <textarea value={analisis.oportunidad} onChange={e=>setAnalisis({...analisis, oportunidad:e.target.value})} className="mt-1 w-full h-24 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00]"/>
                 </div>
 
                 <button onClick={()=>{ if(selectedLead && analisis.oportunidad){ setStep(3);} }} disabled={!analisis.oportunidad} className="mt-5 w-full bg-[#c6ff00] disabled:opacity-30 text-black font-black py-3 rounded-xl flex items-center justify-center gap-2 text-sm tracking-wide">
@@ -715,6 +721,8 @@ ${queHacemos}
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 grid grid-cols-2 gap-3">
                 <div><label className="text-[11px] text-white/50">TU NOMBRE (firma)</label><input value={miNombre} onChange={e=>setMiNombre(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
                 <div><label className="text-[11px] text-white/50">TU AGENCIA</label><input value={miAgencia} onChange={e=>setMiAgencia(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
+                <div><label className="text-[11px] text-white/50">TU TELÉFONO (firma del email)</label><input value={miTelefono} onChange={e=>setMiTelefono(e.target.value)} placeholder="Opcional" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
+                <div><label className="text-[11px] text-white/50">TU EMAIL (firma del email)</label><input value={miEmail} onChange={e=>setMiEmail(e.target.value)} placeholder="Opcional" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
               </div>
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden">
                 <div className="flex border-b border-white/10">
