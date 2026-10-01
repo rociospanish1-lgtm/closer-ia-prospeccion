@@ -40,6 +40,8 @@ interface Lead {
   velocidad?: string;
   analisisEstado?: 'ok' | 'error';
   analisisError?: string;
+  ultimoContacto?: string;
+  seguimientos?: number;
 }
 
 interface Analisis {
@@ -314,7 +316,8 @@ ${miNombre} · ${miAgencia}`);
 
   const [analizandoTodos, setAnalizandoTodos] = useState(false);
   const [progreso, setProgreso] = useState({ hecho: 0, total: 0 });
-  const [soloHuecos, setSoloHuecos] = useState(false);
+  type Pestana = 'todos' | 'prioritarios' | 'web' | 'sinhuecos' | 'pendientes' | 'seguimiento';
+  const [pestana, setPestana] = useState<Pestana>('todos');
 
   const HUECOS_CLAVE = ['sin_whatsapp', 'sin_reservas'];
   const puntosHuecos = (l: Lead) => (l.huecos || []).filter(h => HUECOS_CLAVE.includes(h)).length;
@@ -445,12 +448,35 @@ ${miNombre} · ${miAgencia}`);
     });
   },[leads, nicho, ciudad, keyword]);
 
+  const diasDesdeContacto = (l: Lead) => l.ultimoContacto ? Math.floor((Date.now() - new Date(l.ultimoContacto).getTime()) / 86400000) : null;
+  // 1.er seguimiento a los 3 días del contacto; 2.º a los 4 días del primero (7 en total)
+  const tocaSeguimiento = (l: Lead) => {
+    if(l.estado !== 'CONTACTADO') return false;
+    const d = diasDesdeContacto(l);
+    if(d === null) return false;
+    const n = l.seguimientos || 0;
+    return n < 2 && d >= (n === 0 ? 3 : 4);
+  };
+  const categoria = (l: Lead): Exclude<Pestana,'todos'|'seguimiento'> => {
+    if(!l.web || l.analisisEstado !== 'ok') return 'pendientes';
+    if(puntosHuecos(l) > 0) return 'prioritarios';
+    return (l.huecos || []).length > 0 ? 'web' : 'sinhuecos';
+  };
+  const conteos = useMemo(()=>{
+    const c = { todos: filteredLeads.length, prioritarios: 0, web: 0, sinhuecos: 0, pendientes: 0, seguimiento: 0 };
+    filteredLeads.forEach(l => { c[categoria(l)]++; if(tocaSeguimiento(l)) c.seguimiento++; });
+    return c;
+  },[filteredLeads]);
+
   const visibleLeads = useMemo(()=>{
-    if(!soloHuecos) return filteredLeads;
-    return filteredLeads
-      .filter(l => l.telefono && puntosHuecos(l) > 0)
-      .sort((a,b) => puntosHuecos(b) - puntosHuecos(a) || Number(b.reviews) - Number(a.reviews));
-  },[filteredLeads, soloHuecos]);
+    if(pestana === 'todos') return filteredLeads;
+    if(pestana === 'seguimiento') return filteredLeads.filter(tocaSeguimiento);
+    const lista = filteredLeads.filter(l => categoria(l) === pestana);
+    if(pestana === 'prioritarios') {
+      return lista.sort((a,b) => Number(!!b.telefono) - Number(!!a.telefono) || puntosHuecos(b) - puntosHuecos(a) || Number(b.reviews) - Number(a.reviews));
+    }
+    return lista;
+  },[filteredLeads, pestana]);
 
   const isCloserActive = closerChecks.length >= 2;
   const puedePagar = ESTADOS_ORDEN[estadoCloser] !== undefined && ESTADOS_ORDEN[estadoCloser] >= 5;
@@ -601,11 +627,20 @@ ${miNombre} · ${miAgencia}`);
               <div className="col-span-12 lg:col-span-8">
                 <div className="rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden">
                   <div className="p-4 flex flex-wrap items-center justify-between gap-2 border-b border-white/10">
-                    <div className="flex items-center gap-2"><Building2 size={16} className="text-[#c6ff00]"/><span className="font-display font-bold text-sm">LEADS OPERATIVOS • {visibleLeads.length}{soloHuecos ? ` de ${filteredLeads.length}` : ''}</span></div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={handleAnalizarTodos} disabled={analizandoTodos} className="px-3 py-1.5 rounded-lg bg-white text-black font-bold text-[11px] disabled:opacity-50">{analizandoTodos ? `ANALIZANDO ${progreso.hecho}/${progreso.total}...` : 'ANALIZAR TODOS'}</button>
-                      <button onClick={()=>setSoloHuecos(v=>!v)} className={`px-3 py-1.5 rounded-lg font-bold text-[11px] border ${soloHuecos ? 'bg-[#c6ff00] text-black border-[#c6ff00]' : 'bg-black text-white/70 border-white/15'}`}>SOLO CON HUECOS</button>
-                    </div>
+                    <div className="flex items-center gap-2"><Building2 size={16} className="text-[#c6ff00]"/><span className="font-display font-bold text-sm">LEADS OPERATIVOS • {visibleLeads.length}</span></div>
+                    <button onClick={handleAnalizarTodos} disabled={analizandoTodos} className="px-3 py-1.5 rounded-lg bg-white text-black font-bold text-[11px] disabled:opacity-50">{analizandoTodos ? `ANALIZANDO ${progreso.hecho}/${progreso.total}...` : 'ANALIZAR TODOS'}</button>
+                  </div>
+                  <div className="px-4 py-2 flex flex-wrap gap-1 border-b border-white/10">
+                    {([
+                      ['todos','TODOS'],
+                      ['prioritarios','PRIORITARIOS'],
+                      ['seguimiento','TOCA SEGUIMIENTO'],
+                      ['web','SOLO WEB / SEO'],
+                      ['sinhuecos','SIN HUECOS'],
+                      ['pendientes','SIN ANALIZAR'],
+                    ] as [Pestana,string][]).map(([id,label])=>(
+                      <button key={id} onClick={()=>setPestana(id)} className={`px-3 py-1.5 rounded-lg font-bold text-[10px] border ${pestana===id ? 'bg-[#c6ff00] text-black border-[#c6ff00]' : 'bg-black text-white/70 border-white/15 hover:border-white/30'}`}>{label} · {conteos[id]}</button>
+                    ))}
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-[12px]">
@@ -624,12 +659,17 @@ ${miNombre} · ${miAgencia}`);
                                 {l.huecos?.includes('sin_reservas') && <span className="px-1.5 py-0.5 rounded bg-[#c6ff00]/20 text-[#c6ff00] text-[10px]">Sin reservas</span>}
                                 {l.analisisEstado==='error' && <span title={l.analisisError} className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[10px]">No analizado</span>}
                                 {!l.web && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Sin web</span>}
+                                {!l.telefono && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Sin teléfono</span>}
+                                {l.analisisEstado==='ok' && puntosHuecos(l)===0 && (l.huecos||[]).length>0 && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Solo web / SEO</span>}
+                                {l.estado==='CONTACTADO' && diasDesdeContacto(l)!==null && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/60">Contactado hace {diasDesdeContacto(l)} d</span>}
+                                {tocaSeguimiento(l) && <button onClick={()=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, ultimoContacto:new Date().toISOString(), seguimientos:(x.seguimientos||0)+1}:x))} className="px-1.5 py-0.5 rounded bg-amber-400 text-black text-[10px] font-bold">TOCA SEGUIMIENTO · HECHO</button>}
+                                {l.estado==='CONTACTADO' && (l.seguimientos||0)>=2 && diasDesdeContacto(l)!==null && diasDesdeContacto(l)!>=4 && <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[10px]">Sin respuesta: cerrar</span>}
                               </div>
                             </td>
                             <td className="p-3"><input value={l.web} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, web:e.target.value}:x))} className="bg-transparent border border-transparent hover:border-white/20 rounded px-2 py-1 w-full outline-none text-[11px] text-[#c6ff00]"/></td>
                             <td className="p-3 hidden md:table-cell"><input value={l.telefono} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, telefono:e.target.value}:x))} className="bg-transparent border border-transparent hover:border-white/20 rounded px-2 py-1 w-full outline-none"/></td>
                             <td className="p-3">
-                              <select value={l.estado} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, estado:e.target.value as EstadoLead}:x))} className="bg-black border border-white/15 rounded px-2 py-1 text-[11px]">
+                              <select value={l.estado} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, estado:e.target.value as EstadoLead, ...(e.target.value==='CONTACTADO' && !x.ultimoContacto ? {ultimoContacto:new Date().toISOString(), seguimientos:0} : {})}:x))} className="bg-black border border-white/15 rounded px-2 py-1 text-[11px]">
                                 <option>NUEVO</option><option>CONTACTADO</option><option>CALIENTE</option><option>NO_INTERESADO</option>
                               </select>
                             </td>
@@ -643,7 +683,7 @@ ${miNombre} · ${miAgencia}`);
                         ))}
                       </tbody>
                     </table>
-                    {visibleLeads.length===0 && <div className="p-12 text-center text-white/30 text-sm">{soloHuecos ? 'Ningún lead cumple el filtro. Pulsa ANALIZAR TODOS o quita el filtro.' : 'Sin leads. Busca en Google Maps o añade uno manualmente para empezar.'}</div>}
+                    {visibleLeads.length===0 && <div className="p-12 text-center text-white/30 text-sm">{pestana==='todos' ? 'Sin leads. Busca en Google Maps o añade uno manualmente para empezar.' : pestana==='seguimiento' ? 'Nadie toca seguimiento ahora mismo.' : 'No hay leads en esta pestaña. Pulsa ANALIZAR TODOS para clasificarlos.'}</div>}
                   </div>
                 </div>
               </div>
@@ -792,7 +832,7 @@ ${miNombre} · ${miAgencia}`);
 
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
                 <button onClick={()=>{
-                  if(selectedLead) setLeads(prev=>prev.map(l=>l.id===selectedLead.id ? {...l, estado:'CONTACTADO'}:l));
+                  if(selectedLead) setLeads(prev=>prev.map(l=>l.id===selectedLead.id ? {...l, estado:'CONTACTADO', ultimoContacto:new Date().toISOString(), seguimientos:0}:l));
                 }} className="w-full bg-white text-black font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-sm">
                   <CheckCircle2 size={16}/> MARCAR COMO CONTACTADO
                 </button>
