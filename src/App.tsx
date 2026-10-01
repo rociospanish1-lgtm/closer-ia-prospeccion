@@ -59,7 +59,7 @@ const ESTADOS_ORDEN: Record<string, number> = {
 const CHECKLIST_ITEMS = [
   { id: 'sin_reservas', label: 'Sin reservas online', impact: 'Pierde citas fuera de horario' },
   { id: 'sin_pixel', label: 'Sin píxel / sin medición', impact: 'No hace retargeting' },
-  { id: 'lenta', label: 'Web lenta (>3s)', impact: 'Pierde 40% tráfico móvil' },
+  { id: 'lenta', label: 'Web lenta (>3s)', impact: 'Carga lenta en móvil' },
   { id: 'sin_whatsapp', label: 'Sin WhatsApp visible', impact: 'Fricción para contactar' },
   { id: 'sin_schema', label: 'Sin schema / SEO local', impact: 'Invisible en Maps' },
   { id: 'imagenes', label: 'Imágenes pesadas', impact: 'Experiencia móvil pobre' },
@@ -76,6 +76,10 @@ const ACTIVACION_CHECKS = [
 
 export default function App() {
   const [step, setStep] = useState(1);
+  const [miNombre, setMiNombre] = useState(() => { try { return localStorage.getItem('closer_nombre') || 'Rocío'; } catch { return 'Rocío'; } });
+  const [miAgencia, setMiAgencia] = useState(() => { try { return localStorage.getItem('closer_agencia') || 'Agencia de Agentes IA'; } catch { return 'Agencia de Agentes IA'; } });
+  useEffect(()=>{ try { localStorage.setItem('closer_nombre', miNombre); localStorage.setItem('closer_agencia', miAgencia); } catch {} },[miNombre, miAgencia]);
+
 
   const [nicho, setNicho] = useState('Clínica Dental');
   const [ciudad, setCiudad] = useState('Sevilla');
@@ -130,9 +134,9 @@ export default function App() {
   // Auto rellenar voz
   useEffect(()=>{
     if(selectedLead){
-      setVozNombre(selectedLead.nombre.split(' ')[0] || '');
+      setVozNombre('');
       setVozEmpresa(selectedLead.nombre);
-      if(analisis.oportunidad) setVozFallo(analisis.oportunidad.slice(0,80));
+      if(analisis.oportunidad) setVozFallo(analisis.oportunidad);
     }
   },[selectedLead?.id, analisis.oportunidad]);
 
@@ -144,88 +148,90 @@ export default function App() {
     const nichoLower = (selectedLead?.nicho || nicho).toLowerCase();
     const map: Record<string, {op:string, ang:string}> = {
       sin_reservas: {
-        op: nichoLower.includes('dental') || nichoLower.includes('clinica') ? 'Pierde 12-18 citas/mes fuera de horario porque no hay reserva 24h' : 'Pierde reservas fuera de horario, cliente se va a la competencia',
-        ang: 'Agenda llena en automático incluso a las 23:00 sin recepcionista'
-      },
-      sin_pixel: {
-        op: 'No puede recuperar visitantes que ya miraron precios/servicios, 70% tráfico perdido',
-        ang: 'Recuperar a cada visitante interesado con retargeting automático'
-      },
-      lenta: {
-        op: `Web carga en ${analisis.velocidad} - Google la penaliza y pierde 40% usuarios móvil`,
-        ang: 'Web ultra-rápida que convierte y sube en Maps'
+        op: 'no hay forma de reservar cita online desde la web',
+        ang: 'atiende las consultas por WhatsApp y propone huecos de agenda'
       },
       sin_whatsapp: {
-        op: 'Cliente caliente tiene que llamar/formulario, fricción alta, pierde leads en el último paso',
-        ang: 'Atención inmediata por WhatsApp con IA que cierra citas en 30s'
+        op: 'no se ve un enlace ni un botón de WhatsApp para contactar',
+        ang: 'responde al momento a las consultas por WhatsApp, también fuera de horario'
+      },
+      sin_pixel: {
+        op: 'no hay herramientas de medición instaladas',
+        ang: 'mide de dónde llegan las consultas'
+      },
+      lenta: {
+        op: `la web tarda ${analisis.velocidad} en cargar`,
+        ang: 'mejora la velocidad de la web'
       },
       sin_schema: {
-        op: 'Invisible en Google Maps vs competencia con ficha optimizada',
-        ang: 'Dominar SEO local y aparecer primero en "cerca de mí"'
+        op: 'la web no incluye datos estructurados de negocio local para Google',
+        ang: 'mejora la presencia en Google'
       },
       imagenes: {
-        op: 'Imágenes de 2-4MB, carga pésima en móvil, rebote alto',
-        ang: 'Experiencia móvil premium que retiene y transmite confianza'
+        op: 'hay muchas imágenes sin optimizar, lo que ralentiza la carga en móvil',
+        ang: 'mejora la carga en móvil'
       }
     };
-    const first = analisis.checks[0];
-    const combinedOps = analisis.checks.map(c=> map[c]?.op).filter(Boolean).join(' + ');
-    const combinedAng = map[first]?.ang || 'Automatizar captación 24/7 sin perder humano';
-    setAnalisis(prev=>({...prev, oportunidad: combinedOps.slice(0,280), angulo: combinedAng }));
+    const unir = (xs: string[]) => xs.length <= 1 ? (xs[0] || '') : xs.slice(0,-1).join(', ') + ' y ' + xs[xs.length-1];
+    const nucleo = analisis.checks.filter(c=> c==='sin_whatsapp' || c==='sin_reservas');
+    const usar = nucleo.length ? nucleo : analisis.checks;
+    const combinedOps = unir(usar.map(c=> map[c]?.op).filter(Boolean) as string[]);
+    const combinedAng = map[usar[0]]?.ang || 'atiende las consultas de los clientes por WhatsApp';
+    setAnalisis(prev=>({...prev, oportunidad: combinedOps, angulo: combinedAng }));
   },[analisis.checks]);
 
   // Templates prospectivos
   useEffect(()=>{
     if(!selectedLead) return;
-    const fallo = analisis.oportunidad || 'falta de sistema de reservas automáticas';
-    const ang = analisis.angulo || 'agenda llena en automático';
-    setEmailTpl(`Asunto: ${selectedLead.nombre} - vi esto en vuestra web
+    const nom = selectedLead.nombre;
+    const obs = analisis.oportunidad
+      ? `Estuve mirando vuestra web y vi que ${analisis.oportunidad}.`
+      : 'Estuve mirando vuestra web y me gustaría saber cómo gestionáis las consultas que os llegan fuera de horario.';
+    const queHacemos = 'Montamos un agente de WhatsApp con IA que responde a las consultas habituales (precios, tratamientos, horarios) y agenda citas. Lo que necesita a una persona se lo pasa a vuestro equipo.';
 
-Hola ${selectedLead.nombre.split(' ')[0] || 'equipo'},
+    setEmailTpl(`Asunto: Consultas y citas por WhatsApp en ${nom}
 
-Estaba viendo vuestra web ${selectedLead.web} y detecté: ${fallo}.
+Hola ${nom},
 
-En ${nicho} como la vuestra en ${ciudad}, esto suele significar perder 10-20 clientes/mes que buscan fuera de horario.
+Soy ${miNombre}, de ${miAgencia}.
 
-Trabajo con FENIX AI - instalamos un agente de WhatsApp que ${ang.toLowerCase()}.
+${obs}
 
-No sustituye a vuestro equipo, solo filtra lo repetitivo y pasa lo importante a humanos.
+${queHacemos}
 
-¿Te interesa que te enseñe un ejemplo de 2 min con vuestros datos reales?
+¿Os interesaría ver un ejemplo de cómo funcionaría con ${nom}? Si no os encaja, decídmelo y no insisto.
 
 Un saludo,
-[Tu nombre]
----
-PD: Si no es interesante, dime y cierro el tema.`);
+${miNombre}
+${miAgencia}`);
 
-    setWaTpl(`Hola ${selectedLead.nombre.split(' ')[0] || ''}! 👋 Vi vuestra web y noté: ${fallo}.
+    setWaTpl(`Hola ${nom}, soy ${miNombre} de ${miAgencia}.
 
-¿Os pasa que perdéis citas porque no pueden reservar fuera de horario?
+${obs}
 
-En FENIX ayudamos a ${nicho.toLowerCase()} en ${ciudad} a tener ${ang.toLowerCase()} con WhatsApp IA + humano.
+${queHacemos}
 
-¿Te mando un audio de 27s con cómo quedaría?
+¿Os interesaría ver un ejemplo con ${nom}? Si no, dímelo y no insisto.`);
 
-Si no te interesa, dime "no" y no te molesto más.`);
+    setCallTpl(`Guion de llamada: ${nom}
 
-    setCallTpl(`Guion llamada ${selectedLead.nombre} - ${analisis.velocidad} - SEO ${analisis.seoScore}/10
-
-1. Hola ${selectedLead.nombre.split(' ')[0]}, soy [tu nombre] de FENIX AI, ¿2 min?
-2. Vi que ${fallo} - en ${nicho} en ${ciudad} eso es crítico.
-3. Nosotros ponemos WhatsApp IA que ${ang.toLowerCase()} y deriva a humanos.
-4. ¿Tiene sentido que lo veamos 10 min esta semana o prefieres que lo cierre aquí?`);
-  },[selectedLead?.id, analisis.oportunidad, analisis.angulo]);
+1. Saludo y presentación: "Hola, ¿hablo con ${nom}? Soy ${miNombre}, de ${miAgencia}. ¿Tenéis un minuto?"
+2. Motivo: ${obs}
+3. Qué hacemos: ${queHacemos}
+4. Cierre: "¿Os interesaría ver un ejemplo con ${nom}? Si preferís, os lo mando por WhatsApp y lo miráis con calma."`);
+  },[selectedLead?.id, analisis.oportunidad, analisis.angulo, miNombre, miAgencia]);
 
   const vozScripts = useMemo(()=>{
-    const n = vozNombre || 'Carlos';
-    const emp = vozEmpresa || selectedLead?.nombre || 'tu clínica';
-    const f = vozFallo || analisis.oportunidad || 'pierdes citas fuera de horario';
+    const emp = vozEmpresa || selectedLead?.nombre || 'vuestra clínica';
+    const n = vozNombre ? `${vozNombre}, ` : '';
+    const f = vozFallo || analisis.oportunidad;
+    const vi = f ? `y vi que ${f}` : 'y me gustaría saber cómo gestionáis las consultas fuera de horario';
     return {
-      inicial: `Hola ${n}, soy [tu nombre] de FENIX AI [pausa] Vi la web de ${emp} [respiración] y detecté que ${f} [pausa corta] Eso en ${nicho} en ${ciudad} significa perder entre 10 y 20 clientes al mes que buscan por la noche [pausa] Nosotros instalamos un agente de WhatsApp que agenda en automático y pasa a humanos lo importante [respiración] ¿Te interesa que te enseñe cómo quedaría en 2 minutos?`,
-      seguimiento: `Hola ${n}, te escribo por lo de ${emp} [pausa] El otro día comentamos lo de ${f} [respiración] He preparado un ejemplo concreto de cómo el agente respondería a una consulta de cita a las 10 de la noche y derivaría a vuestro equipo [pausa corta] ¿Quieres que te lo envíe y lo valoras sin compromiso?`,
-      cierre: `${n}, entiendo que ahora mismo tengáis mucho lío en ${emp} [pausa] Solo por cerrar el tema [respiración] si solucionáramos ${f} con un sistema que funciona 24 horas sin cambiar vuestra operativa [pausa corta] ¿Te interesaría ver el siguiente paso o prefieres que cierre aquí el tema definitivamente?`
+      inicial: `Hola ${emp}, soy ${miNombre} de ${miAgencia} [pausa] Estuve mirando vuestra web ${vi} [pausa corta] Montamos un agente de WhatsApp con IA que responde a las consultas habituales y agenda citas, y pasa a vuestro equipo lo que necesita a una persona [respiración] ¿Os interesaría ver un ejemplo con ${emp}?`,
+      seguimiento: `Hola ${n}soy ${miNombre} de ${miAgencia} [pausa] Te escribo por lo que te comenté de ${emp} [respiración] He preparado un ejemplo de cómo el agente respondería a una consulta de cita fuera de horario y la pasaría a vuestro equipo [pausa corta] ¿Quieres que te lo envíe y lo ves con calma?`,
+      cierre: `Hola ${n}soy ${miNombre} de ${miAgencia} [pausa] Solo quería cerrar el tema de ${emp} [respiración] Si en algún momento queréis ver cómo funcionaría un agente de WhatsApp en vuestro caso, me escribís y lo vemos [pausa corta] Si no os encaja, lo dejamos aquí. Gracias por vuestro tiempo.`
     };
-  },[vozNombre, vozEmpresa, vozFallo, nicho, ciudad, selectedLead, analisis.oportunidad]);
+  },[vozNombre, vozEmpresa, vozFallo, selectedLead, analisis.oportunidad, miNombre, miAgencia]);
 
   const currentScript = vozScripts[vozTab];
   const wordCount = currentScript.split(/\s+/).filter(Boolean).length;
@@ -706,6 +712,10 @@ Si no te interesa, dime "no" y no te molesto más.`);
         {step===3 && (
           <div className="grid grid-cols-12 gap-5">
             <div className="col-span-12 lg:col-span-7 space-y-4">
+              <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 grid grid-cols-2 gap-3">
+                <div><label className="text-[11px] text-white/50">TU NOMBRE (firma)</label><input value={miNombre} onChange={e=>setMiNombre(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
+                <div><label className="text-[11px] text-white/50">TU AGENCIA</label><input value={miAgencia} onChange={e=>setMiAgencia(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
+              </div>
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden">
                 <div className="flex border-b border-white/10">
                   {[
@@ -948,7 +958,7 @@ Si prefieres Bizum/manual, dime y te paso datos.`}
         )}
 
         <div className="mt-8 flex items-center justify-between text-[10px] text-white/20 border-t border-white/5 pt-4">
-          <span className="flex items-center gap-2"><Flame size={12} className="text-[#c6ff00]"/>FENIX AI V4.1 • OPERATIVA REAL • SIN MOCKS BLOQUEANTES • 100% EDITABLE</span>
+          <span className="flex items-center gap-2"><Flame size={12} className="text-[#c6ff00]"/>CLOSER V4.1 • OPERATIVA REAL • SIN MOCKS BLOQUEANTES • 100% EDITABLE</span>
           <span className="hidden md:flex items-center gap-2"><Settings size={10}/> Dark #0a0a0a + Lima #c6ff00 • Glass • Mono</span>
         </div>
       </main>
