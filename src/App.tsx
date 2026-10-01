@@ -6,6 +6,10 @@ import {
   User, Sparkles, Flame
 } from 'lucide-react';
 
+// Precios de la web (rociopinedaia.es): automatización de WhatsApp
+const PRECIO_SETUP = 297;
+const PRECIO_MENSUAL = 39;
+
 // CONSTANTE EXACTA REQUERIDA
 const OBJECIONES_V4 = [
   {key:'Prefiero humanos', estrategia:'Validar → explicar modelo híbrido → comprobar si ese enfoque encaja', queEvitar:'No intentar convencer de que la IA sustituye a las personas', ejemplo:'Entiendo perfectamente. La idea no es sustituir a vuestro equipo. El agente puede encargarse de las consultas repetitivas y pasar a una persona los casos que necesitan atención humana. Así el equipo se centra en lo importante.'},
@@ -14,7 +18,7 @@ const OBJECIONES_V4 = [
   {key:'Me lo pienso', estrategia:'Clasificar como SEGUIMIENTO → aportar valor relacionado con la conversación → dejar espacio', queEvitar:'No preguntar "¿lo has pensado?", "¿te has decidido?" ni crear urgencia falsa', ejemplo:'Claro, sin problema. En vuestro caso, lo importante sería que el agente se encargara de [problema concreto] y derivara al equipo los casos que necesitan atención humana. Así podéis valorarlo con calma.'},
   {key:'No me interesa', estrategia:'Clasificar como NO_INTERESADO → cerrar cordialmente → detener el proceso comercial', queEvitar:'No intentar darle la vuelta automáticamente ni presentar otra oferta', ejemplo:'Sin problema, gracias por decírmelo claro. Cierro aquí el tema. Que vaya todo genial con el negocio.'},
   {key:'No me contactes más', estrategia:'Clasificar inmediatamente como NO_CONTACTAR → detener cualquier seguimiento o contacto comercial', queEvitar:'No hacer preguntas, no ofrecer alternativas y no intentar recuperar la venta', ejemplo:'Entendido. Cierro el tema y no volveré a contactarte por esto. Gracias por decírmelo.'},
-  {key:'¿Cuánto cuesta?', estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:'Por lo que hemos hablado, el agente de WhatsApp encajaría con lo que necesitáis. El setup es de 497 € y después 97 €/mes. Incluye [resumen de lo incluido]. Si quieres avanzar, te explico el siguiente paso.'},
+  {key:'¿Cuánto cuesta?', estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:`Por lo que hemos hablado, el agente de WhatsApp encajaría con lo que necesitáis. El setup es de ${PRECIO_SETUP} € y después ${PRECIO_MENSUAL} €/mes. Incluye [resumen de lo incluido]. Si quieres avanzar, te explico el siguiente paso.`},
   {key:'No necesito IA', estrategia:'No discutir → entender si realmente no existe una necesidad o si simplemente no quiere utilizar IA → si no hay necesidad, cerrar', queEvitar:'No intentar convencer de que necesita IA', ejemplo:'Perfecto, lo entiendo. Al final lo importante no es utilizar IA por utilizarla, sino que resuelva un problema real. Si ahora mismo no tenéis esa necesidad, no tendría sentido añadir nada.'},
   {key:'Ya tengo a alguien', estrategia:'Validar → diferenciar sustitución de apoyo → comprobar si existe alguna tarea repetitiva que actualmente recaiga sobre esa persona', queEvitar:'No cuestionar al empleado ni plantear la IA como sustitución automática', ejemplo:'Perfecto. De hecho, puede complementar perfectamente ese trabajo. La idea sería quitarle las consultas repetitivas y dejarle los casos que realmente necesitan intervención.'},
   {key:'Ahora no', estrategia:'No presionar → identificar si es un problema de momento o falta de interés → si pide retomarlo más adelante, clasificar como SEGUIMIENTO', queEvitar:'No crear urgencia artificial', ejemplo:'Entendido, ningún problema. Si ahora no es el momento, lo dejamos aquí. Si más adelante quieres retomarlo, seguimos desde donde lo dejamos.'},
@@ -123,8 +127,8 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatHist, setChatHist] = useState<{role:'prospecto'|'ia', text:string, objecion?: typeof OBJECIONES_V4[0], estado?: EstadoCloser}[]>([]);
   const [problemaConcreto, setProblemaConcreto] = useState('gestión de citas fuera de horario');
-  const [importe, setImporte] = useState('497');
-  const [concepto, setConcepto] = useState('Setup Agente WhatsApp IA + Implantación');
+  const [importe, setImporte] = useState(String(PRECIO_SETUP));
+  const [concepto, setConcepto] = useState('Automatización de WhatsApp (implantación)');
   const [stripeLink, setStripeLink] = useState('');
   const [emailCliente, setEmailCliente] = useState('');
   const [linkGenerado, setLinkGenerado] = useState('');
@@ -483,7 +487,7 @@ ${miNombre} · ${miAgencia}`);
 
   const [generando, setGenerando] = useState(false);
   const [errorPago, setErrorPago] = useState('');
-  const [mensualidad, setMensualidad] = useState('97');
+  const [mensualidad, setMensualidad] = useState(String(PRECIO_MENSUAL));
 
   const generarLink = async () => {
     setErrorPago('');
@@ -980,7 +984,7 @@ ${miNombre} · ${miAgencia}`);
                 </div>
                 <div className="mt-4 p-3 rounded-xl bg-[#c6ff00]/10 border border-[#c6ff00]/20 text-[11px]">
                   <div className="font-bold text-[#c6ff00]">QUÉ PASA DESPUÉS DEL PAGO</div>
-                  <div className="mt-1 text-white/70 leading-relaxed">1. Cliente paga → le llega email automático<br/>2. En 24h le pides accesos web/WhatsApp<br/>3. En 48h entrega operativa + video<br/>4. Cobro recurrente 97€/mes tras 30 días</div>
+                  <div className="mt-1 text-white/70 leading-relaxed">1. Cliente paga → le llega email automático<br/>2. En 24h le pides accesos web/WhatsApp<br/>3. En 48h entrega operativa + video<br/>4. Cuota de {PRECIO_MENSUAL} €/mes: se cobra en el primer pago y después cada mes</div>
                 </div>
               </div>
 
