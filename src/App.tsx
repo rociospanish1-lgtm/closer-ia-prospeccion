@@ -5,10 +5,20 @@ import {
   ChevronRight, Building2, FileText, Mic, Send, CheckCircle2, Ban, Eye, Settings,
   User, Sparkles, Flame
 } from 'lucide-react';
+import { Ficha, ganchos, construirMensajes, lineaPositiva, tratamientoPorDefecto } from './personalizacion';
 
-// Precios de la web (rociopinedaia.es): automatización de WhatsApp
-const PRECIO_SETUP = 297;
-const PRECIO_MENSUAL = 39;
+// Planes de la agencia (rociopinedaia.es). Precios sin IVA.
+const PLANES = [
+  { id: 'esencial', nombre: 'Esencial', cuota: 149, alta: 390, para: 'clínicas de 1–2 profesionales', plazo: '5–7 días laborables',
+    incluye: ['Agente de WhatsApp 24/7 (dudas, precios, tratamientos, horarios)', 'Capta los datos del cliente y avisa a la clínica', 'Hasta 300 conversaciones al mes', 'Ajuste fino 2 semanas'] },
+  { id: 'pro', nombre: 'Pro', cuota: 279, alta: 790, para: 'clínicas de 2–5 profesionales', plazo: '7–10 días laborables',
+    incluye: ['Todo lo del Esencial', 'Agenda citas sola en su calendario', 'Recordatorios para reducir ausencias', 'Instagram (mensajes directos)', 'Panel de contactos · hasta 600 conversaciones/mes'] },
+  { id: 'premium', nombre: 'Premium', cuota: 590, alta: 1490, para: 'clínicas grandes o con varias sedes', plazo: '2–3 semanas',
+    incluye: ['Todo lo del Pro', 'Agente de voz para llamadas perdidas y fuera de horario', 'Conexión con su programa de gestión', 'Campaña mensual de reactivación', 'Informe mensual · 1.200 conversaciones + 300 min'] },
+] as const;
+type PlanId = typeof PLANES[number]['id'];
+const conIva = (n: number) => Math.round(n * 1.21 * 100) / 100;
+const euro = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
 
 // CONSTANTE EXACTA REQUERIDA
 const OBJECIONES_V4 = [
@@ -18,7 +28,7 @@ const OBJECIONES_V4 = [
   {key:'Me lo pienso', estrategia:'Clasificar como SEGUIMIENTO → aportar valor relacionado con la conversación → dejar espacio', queEvitar:'No preguntar "¿lo has pensado?", "¿te has decidido?" ni crear urgencia falsa', ejemplo:'Claro, sin problema. En vuestro caso, lo importante sería que el agente se encargara de [problema concreto] y derivara al equipo los casos que necesitan atención humana. Así podéis valorarlo con calma.'},
   {key:'No me interesa', estrategia:'Clasificar como NO_INTERESADO → cerrar cordialmente → detener el proceso comercial', queEvitar:'No intentar darle la vuelta automáticamente ni presentar otra oferta', ejemplo:'Sin problema, gracias por decírmelo claro. Cierro aquí el tema. Que vaya todo genial con el negocio.'},
   {key:'No me contactes más', estrategia:'Clasificar inmediatamente como NO_CONTACTAR → detener cualquier seguimiento o contacto comercial', queEvitar:'No hacer preguntas, no ofrecer alternativas y no intentar recuperar la venta', ejemplo:'Entendido. Cierro el tema y no volveré a contactarte por esto. Gracias por decírmelo.'},
-  {key:'¿Cuánto cuesta?', estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:`Por lo que hemos hablado, el agente de WhatsApp encajaría con lo que necesitáis. El setup es de ${PRECIO_SETUP} € y después ${PRECIO_MENSUAL} €/mes. Incluye [resumen de lo incluido]. Si quieres avanzar, te explico el siguiente paso.`},
+  {key:'¿Cuánto cuesta?', estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:'Por lo que hemos hablado, os encaja el plan [plan]: [cuota] €/mes + IVA y [alta] € + IVA de alta, que incluye montarlo, probarlo con vosotros y ajustarlo dos semanas. [retorno]Si quieres avanzar, te explico el siguiente paso.'},
   {key:'No necesito IA', estrategia:'No discutir → entender si realmente no existe una necesidad o si simplemente no quiere utilizar IA → si no hay necesidad, cerrar', queEvitar:'No intentar convencer de que necesita IA', ejemplo:'Perfecto, lo entiendo. Al final lo importante no es utilizar IA por utilizarla, sino que resuelva un problema real. Si ahora mismo no tenéis esa necesidad, no tendría sentido añadir nada.'},
   {key:'Ya tengo a alguien', estrategia:'Validar → diferenciar sustitución de apoyo → comprobar si existe alguna tarea repetitiva que actualmente recaiga sobre esa persona', queEvitar:'No cuestionar al empleado ni plantear la IA como sustitución automática', ejemplo:'Perfecto. De hecho, puede complementar perfectamente ese trabajo. La idea sería quitarle las consultas repetitivas y dejarle los casos que realmente necesitan intervención.'},
   {key:'Ahora no', estrategia:'No presionar → identificar si es un problema de momento o falta de interés → si pide retomarlo más adelante, clasificar como SEGUIMIENTO', queEvitar:'No crear urgencia artificial', ejemplo:'Entendido, ningún problema. Si ahora no es el momento, lo dejamos aquí. Si más adelante quieres retomarlo, seguimos desde donde lo dejamos.'},
@@ -46,6 +56,7 @@ interface Lead {
   analisisError?: string;
   ultimoContacto?: string;
   seguimientos?: number;
+  ficha?: Ficha;
 }
 
 interface Analisis {
@@ -127,11 +138,20 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatHist, setChatHist] = useState<{role:'prospecto'|'ia', text:string, objecion?: typeof OBJECIONES_V4[0], estado?: EstadoCloser}[]>([]);
   const [problemaConcreto, setProblemaConcreto] = useState('gestión de citas fuera de horario');
-  const [importe, setImporte] = useState(String(PRECIO_SETUP));
-  const [concepto, setConcepto] = useState('Automatización de WhatsApp (implantación)');
+  const [planId, setPlanId] = useState<PlanId>('pro');
+  const [fasePago, setFasePago] = useState<'firma'|'activacion'>('firma');
+  const plan = PLANES.find(p=>p.id===planId)!;
+  const [importe, setImporte] = useState(String(conIva(790/2)));
+  const [concepto, setConcepto] = useState('Agente IA plan Pro — 50 % del alta (al firmar)');
   const [stripeLink, setStripeLink] = useState('');
   const [emailCliente, setEmailCliente] = useState('');
   const [linkGenerado, setLinkGenerado] = useState('');
+  const [tratamiento, setTratamiento] = useState('');
+  const [contacto, setContacto] = useState('');
+  const [frase2, setFrase2] = useState('');
+  const [seg1Tpl, setSeg1Tpl] = useState('');
+  const [seg2Tpl, setSeg2Tpl] = useState('');
+  const [calidad, setCalidad] = useState<{ok:boolean; texto:string}[]>([]);
 
   useEffect(()=>{
     try { localStorage.setItem('closer_leads', JSON.stringify(leads)); } catch {}
@@ -148,102 +168,53 @@ export default function App() {
     }
   },[selectedLead?.id, analisis.oportunidad]);
 
-  // Generar oportunidad basada en checks y nicho
+  // Al cambiar de lead: tratamiento principal sacado de su web
   useEffect(()=>{
-    if(analisis.checks.length===0){
-      return;
-    }
-    const nichoLower = (selectedLead?.nicho || nicho).toLowerCase();
-    const map: Record<string, {op:string, ang:string}> = {
-      sin_reservas: {
-        op: 'no hay forma de reservar cita online desde la web',
-        ang: 'atiende las consultas por WhatsApp y propone huecos de agenda'
-      },
-      sin_whatsapp: {
-        op: 'no se ve un enlace ni un botón de WhatsApp para contactar',
-        ang: 'responde al momento a las consultas por WhatsApp, también fuera de horario'
-      },
-      sin_pixel: {
-        op: 'no hay herramientas de medición instaladas',
-        ang: 'mide de dónde llegan las consultas'
-      },
-      lenta: {
-        op: `la web tarda ${analisis.velocidad} en cargar`,
-        ang: 'mejora la velocidad de la web'
-      },
-      sin_schema: {
-        op: 'la web no incluye datos estructurados de negocio local para Google',
-        ang: 'mejora la presencia en Google'
-      },
-      imagenes: {
-        op: 'hay muchas imágenes sin optimizar, lo que ralentiza la carga en móvil',
-        ang: 'mejora la carga en móvil'
-      }
-    };
-    const unir = (xs: string[]) => xs.length <= 1 ? (xs[0] || '') : xs.slice(0,-1).join(', ') + ' y ' + xs[xs.length-1];
-    const nucleo = analisis.checks.filter(c=> c==='sin_whatsapp' || c==='sin_reservas');
-    const usar = nucleo.length ? nucleo : analisis.checks;
-    const combinedOps = unir(usar.map(c=> map[c]?.op).filter(Boolean) as string[]);
-    const combinedAng = map[usar[0]]?.ang || 'atiende las consultas de los clientes por WhatsApp';
-    setAnalisis(prev=>({...prev, oportunidad: combinedOps, angulo: combinedAng }));
-  },[analisis.checks]);
+    setTratamiento(selectedLead?.ficha?.tratamientos?.[0] || '');
+    setContacto('');
+  },[selectedLead?.id, selectedLead?.ficha]);
 
-  // Templates prospectivos
+  const tratamientoMsg = tratamiento.trim() || tratamientoPorDefecto(selectedLead?.nicho || nicho);
+
+  // Gancho principal + segundo dato, a partir de lo que se ha visto en SU web
   useEffect(()=>{
     if(!selectedLead) return;
-    const nom = selectedLead.nombre;
-    const obs = analisis.oportunidad
-      ? `Estuve mirando vuestra web y vi que ${analisis.oportunidad}.`
-      : 'Estuve mirando vuestra web y me gustaría saber cómo gestionáis las consultas que os llegan fuera de horario.';
-    const queHacemos = 'Montamos un agente de WhatsApp con IA que responde a las consultas habituales (precios, tratamientos, horarios) y agenda citas. Lo que necesita a una persona se lo pasa a vuestro equipo.';
+    if(!selectedLead.ficha && analisis.checks.length===0) return;
+    const lista = ganchos(selectedLead, analisis.checks, tratamientoMsg);
+    const positivo = lineaPositiva(selectedLead);
+    setAnalisis(prev=>({...prev, oportunidad: lista[0].frase, angulo: lista[0].id }));
+    setFrase2(lista[1]?.frase || (positivo ? positivo.replace(/\.$/, '').replace(/^T/, 't') : `cada consulta sobre ${tratamientoMsg} que llega fuera de horario es una cita que puede irse a otro sitio`));
+  },[analisis.checks, selectedLead?.id, selectedLead?.ficha, tratamientoMsg]);
 
-    setEmailTpl(`Asunto: Consultas y citas por WhatsApp en ${nom}
+  // Mensajes personalizados (email, DM, llamada, seguimientos y voz)
+  const mensajes = useMemo(()=>{
+    if(!selectedLead) return null;
+    return construirMensajes({
+      lead: selectedLead,
+      frase: analisis.oportunidad || `me gustaría saber qué pasa con las consultas sobre ${tratamientoMsg} que os llegan fuera de horario`,
+      frase2: frase2 || analisis.oportunidad,
+      tratamiento: tratamientoMsg,
+      tratamientoPropio: tratamiento.trim() !== '',
+      contacto: contacto.trim() || vozNombre.trim(),
+      firma: { nombre: miNombre, agencia: miAgencia, telefono: miTelefono, email: miEmail },
+    });
+  },[selectedLead, analisis.oportunidad, frase2, tratamientoMsg, tratamiento, contacto, vozNombre, miNombre, miAgencia, miTelefono, miEmail]);
 
-Hola ${nom},
+  useEffect(()=>{
+    if(!mensajes) return;
+    setEmailTpl(mensajes.email);
+    setWaTpl(mensajes.dm);
+    setCallTpl(mensajes.llamada);
+    setSeg1Tpl(mensajes.seguimiento1);
+    setSeg2Tpl(mensajes.seguimiento2);
+    setCalidad(mensajes.calidad);
+  },[mensajes]);
 
-Soy ${miNombre}, de ${miAgencia}.
-
-${obs}
-
-${queHacemos}
-
-¿Os interesaría ver un ejemplo de cómo funcionaría con ${nom}? Si no os encaja, decídmelo y no insisto.
-
-Un saludo,
-${miNombre}
-${miAgencia}${miTelefono ? `\nTel.: ${miTelefono}` : ''}${miEmail ? `\nEmail: ${miEmail}` : ''}`);
-
-    setWaTpl(`Hola ${nom}, soy ${miNombre} de ${miAgencia}.
-
-${obs}
-
-${queHacemos}
-
-¿Os interesaría ver un ejemplo con ${nom}? Si no, dímelo y no insisto.
-
-Un saludo,
-${miNombre} · ${miAgencia}`);
-
-    setCallTpl(`Guion de llamada: ${nom}
-
-1. Saludo y presentación: "Hola, ¿hablo con ${nom}? Soy ${miNombre}, de ${miAgencia}. ¿Tenéis un minuto?"
-2. Motivo: ${obs}
-3. Qué hacemos: ${queHacemos}
-4. Cierre: "¿Os interesaría ver un ejemplo con ${nom}? Si preferís, os lo mando por WhatsApp y lo miráis con calma."
-5. Despedida: "Muchas gracias por vuestro tiempo. Un saludo, y que tengáis un buen día."`);
-  },[selectedLead?.id, analisis.oportunidad, miNombre, miAgencia, miTelefono, miEmail]);
-
-  const vozScripts = useMemo(()=>{
-    const emp = vozEmpresa || selectedLead?.nombre || 'vuestra clínica';
-    const n = vozNombre ? `${vozNombre}, ` : '';
-    const f = vozFallo || analisis.oportunidad;
-    const vi = f ? `y vi que ${f}` : 'y me gustaría saber cómo gestionáis las consultas fuera de horario';
-    return {
-      inicial: `Hola ${emp}, soy ${miNombre} de ${miAgencia} [pausa] Estuve mirando vuestra web ${vi} [pausa corta] Montamos un agente de WhatsApp con IA que responde a las consultas habituales y agenda citas, y pasa a vuestro equipo lo que necesita a una persona [respiración] ¿Os interesaría ver un ejemplo con ${emp}?`,
-      seguimiento: `Hola ${n}soy ${miNombre} de ${miAgencia} [pausa] Te escribo por lo que te comenté de ${emp} [respiración] He preparado un ejemplo de cómo el agente respondería a una consulta de cita fuera de horario y la pasaría a vuestro equipo [pausa corta] ¿Quieres que te lo envíe y lo ves con calma?`,
-      cierre: `Hola ${n}soy ${miNombre} de ${miAgencia} [pausa] Solo quería cerrar el tema de ${emp} [respiración] Si en algún momento queréis ver cómo funcionaría un agente de WhatsApp en vuestro caso, me escribís y lo vemos [pausa corta] Si no os encaja, lo dejamos aquí. Gracias por vuestro tiempo.`
-    };
-  },[vozNombre, vozEmpresa, vozFallo, selectedLead, analisis.oportunidad, miNombre, miAgencia]);
+  const vozScripts = useMemo(()=>({
+    inicial: mensajes?.vozInicial || '',
+    seguimiento: mensajes?.vozSeguimiento || '',
+    cierre: mensajes?.vozCierre || '',
+  }),[mensajes]);
 
   const currentScript = vozScripts[vozTab];
   const wordCount = currentScript.split(/\s+/).filter(Boolean).length;
@@ -304,6 +275,7 @@ ${miNombre} · ${miAgencia}`);
       });
       const data = await r.json();
       if(!r.ok) throw new Error(data?.error || 'Error analizando la web');
+      if(data.ficha) setLeads(prev=>prev.map(x=>x.id===selectedLead.id ? {...x, ficha: data.ficha, huecos: data.checks, seoScore: data.seoScore, velocidad: data.velocidad, analisisEstado:'ok', analisisError:''} : x));
       setAnalisis(prev=>({
         ...prev,
         checks: data.checks,
@@ -345,7 +317,7 @@ ${miNombre} · ${miAgencia}`);
           });
           const d = await r.json();
           cambio = r.ok
-            ? { huecos: d.checks, seoScore: d.seoScore, velocidad: d.velocidad, analisisEstado: 'ok', analisisError: '' }
+            ? { huecos: d.checks, seoScore: d.seoScore, velocidad: d.velocidad, ficha: d.ficha, analisisEstado: 'ok', analisisError: '' }
             : { analisisEstado: 'error', analisisError: d?.error || 'Error' };
         } catch {
           cambio = { analisisEstado: 'error', analisisError: 'Error de conexión' };
@@ -428,7 +400,9 @@ ${miNombre} · ${miAgencia}`);
       if(low.includes('interesa') || low.includes('cuéntame') || low.includes('más info')) newEstado='INTERES';
       else if(low.includes('ok') || low.includes('vale')) newEstado='INTERACCION';
     }
-    const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto) : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
+    const precioVisto = selectedLead?.ficha?.precio;
+    const retorno = precioVisto ? `Con ${precioVisto.tratamiento} a ${precioVisto.euros} €, se paga con ${Math.ceil(plan.cuota / precioVisto.euros)} citas al mes. ` : '';
+    const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto).replace(/\[plan\]/g, plan.nombre).replace(/\[cuota\]/g, euro(plan.cuota)).replace(/\[alta\]/g, euro(plan.alta)).replace(/\[retorno\]/g, retorno) : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
 
     setChatHist(prev=>[
       ...prev,
@@ -487,7 +461,24 @@ ${miNombre} · ${miAgencia}`);
 
   const [generando, setGenerando] = useState(false);
   const [errorPago, setErrorPago] = useState('');
-  const [mensualidad, setMensualidad] = useState(String(PRECIO_MENSUAL));
+  const [mensualidad, setMensualidad] = useState('0');
+  // Plan + fase rellenan importe, cuota y concepto (IVA incluido en lo que paga la clínica)
+  useEffect(()=>{
+    setImporte(String(conIva(plan.alta/2)));
+    setMensualidad(fasePago==='firma' ? '0' : String(conIva(plan.cuota)));
+    setConcepto(`Agente IA plan ${plan.nombre} — ${fasePago==='firma' ? '50 % del alta (al firmar)' : '50 % del alta + cuota mensual (al activar)'}`);
+  },[planId, fasePago]);
+  const mensajePago = fasePago==='firma'
+    ? `Perfecto${contacto ? ' ' + contacto : ''}. Os confirmo el plan ${plan.nombre} para ${selectedLead?.nombre || 'la clínica'}: ${euro(plan.cuota)} €/mes + IVA y ${euro(plan.alta)} € + IVA de alta, con permanencia mínima de 3 meses. El consumo de WhatsApp lo factura Meta directamente a la clínica.
+
+Para empezar, este es el enlace del 50 % del alta (${euro(Number(importe))} € con IVA):
+${linkGenerado || '[ENLACE DE PAGO]'}
+
+En cuanto esté pagado, os mando el contrato y fijamos la reunión de 45 minutos para recoger tratamientos, precios y horarios. Lo tendréis funcionando en ${plan.plazo}.`
+    : `${contacto ? contacto + ', el' : 'El'} agente ya está funcionando en ${selectedLead?.nombre || 'la clínica'}. Este es el enlace del 50 % restante del alta junto con la primera cuota del plan ${plan.nombre} (${euro(conIva(plan.cuota))} €/mes con IVA, que se renueva cada mes):
+${linkGenerado || '[ENLACE DE PAGO]'}
+
+Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`;
 
   const generarLink = async () => {
     setErrorPago('');
@@ -744,8 +735,31 @@ ${miNombre} · ${miAgencia}`);
                   <div><label className="text-[11px] text-white/50">TRÁFICO EST.</label><input value={analisis.trafico} onChange={e=>setAnalisis({...analisis, trafico:e.target.value})} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
                 </div>
 
-                <div className="mt-5">
-                  <label className="text-[11px] text-white/50">LO QUE SE VE EN SU WEB (auto + editable; entra en el mensaje)</label>
+                {selectedLead?.ficha && (
+                  <div className="mt-5 rounded-xl bg-black border border-white/10 p-3 text-[11px] space-y-1.5">
+                    <div className="font-bold text-white/60 tracking-widest mb-1">LO QUE HAY EN SU WEB (PARA PERSONALIZAR)</div>
+                    {selectedLead.ficha.pocoTexto && <div className="text-amber-300 flex items-center gap-1"><AlertTriangle size={12}/> La web carga casi todo con JavaScript: ábrela y comprueba a mano antes de enviar.</div>}
+                    <div><span className="text-white/40">Tratamientos:</span> {selectedLead.ficha.tratamientos.length ? selectedLead.ficha.tratamientos.join(', ') : <span className="text-amber-300">no detectados (escríbelo tú abajo)</span>}</div>
+                    {selectedLead.ficha.precio && <div><span className="text-white/40">Precio visto:</span> {selectedLead.ficha.precio.tratamiento} · {selectedLead.ficha.precio.euros} €</div>}
+                    <div><span className="text-white/40">Cita:</span> {selectedLead.ficha.reservaTipo==='plataforma' ? `reserva online (${selectedLead.ficha.plataforma})` : selectedLead.ficha.reservaTipo==='formulario' ? 'formulario sin elegir día ni hora' : selectedLead.ficha.reservaTipo==='telefono' ? 'hay que llamar' : 'no se ve forma de pedir cita'}</div>
+                    <div><span className="text-white/40">WhatsApp:</span> {selectedLead.ficha.whatsappTipo ? 'botón que abre su chat (sin agente detectado)' : 'no aparece'}{selectedLead.ficha.chat ? ` · chat: ${selectedLead.ficha.chat}` : ''}</div>
+                    <div><span className="text-white/40">Horario:</span> {selectedLead.ficha.horario || 'no aparece en la web'}{selectedLead.ficha.horario ? ` · sábado ${selectedLead.ficha.abreSabado ? 'sí' : 'no'} · domingo ${selectedLead.ficha.abreDomingo ? 'sí' : 'no'}` : ''}</div>
+                    {selectedLead.ficha.instagram && <div><span className="text-white/40">Instagram:</span> @{selectedLead.ficha.instagram}</div>}
+                  </div>
+                )}
+
+                <div className="mt-4">
+                  <label className="text-[11px] text-white/50">TRATAMIENTO QUE SALE EN EL MENSAJE (uno que ofrezcan de verdad)</label>
+                  <input value={tratamiento} onChange={e=>setTratamiento(e.target.value)} placeholder="Ej: depilación láser, limpieza facial, ortodoncia invisible..." className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/>
+                  {!!selectedLead?.ficha?.tratamientos?.length && (
+                    <div className="flex flex-wrap gap-1 mt-2">{selectedLead.ficha.tratamientos.map(t=>(
+                      <button key={t} onClick={()=>setTratamiento(t)} className={`px-2 py-1 rounded text-[10px] ${tratamiento===t ? 'bg-[#c6ff00] text-black font-bold' : 'bg-white/10 text-white/70'}`}>{t}</button>
+                    ))}</div>
+                  )}
+                </div>
+
+                <div className="mt-4">
+                  <label className="text-[11px] text-white/50">GANCHO: DATO DE SU WEB + QUÉ LE PASA A SU CLIENTE (auto + editable; entra en el mensaje)</label>
                   <textarea value={analisis.oportunidad} onChange={e=>setAnalisis({...analisis, oportunidad:e.target.value})} className="mt-1 w-full h-24 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00]"/>
                 </div>
 
@@ -767,12 +781,23 @@ ${miNombre} · ${miAgencia}`);
                 <div><label className="text-[11px] text-white/50">TU AGENCIA</label><input value={miAgencia} onChange={e=>setMiAgencia(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
                 <div><label className="text-[11px] text-white/50">TU TELÉFONO (firma del email)</label><input value={miTelefono} onChange={e=>setMiTelefono(e.target.value)} placeholder="Opcional" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
                 <div><label className="text-[11px] text-white/50">TU EMAIL (firma del email)</label><input value={miEmail} onChange={e=>setMiEmail(e.target.value)} placeholder="Opcional" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
+                <div className="col-span-2"><label className="text-[11px] text-white/50">NOMBRE DE LA PERSONA A LA QUE ESCRIBES (dueña, gerente...)</label><input value={contacto} onChange={e=>setContacto(e.target.value)} placeholder="Opcional, pero sube mucho la respuesta: búscalo en su web, Instagram o Google" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
               </div>
+
+              {calidad.length > 0 && (
+                <div className={`rounded-2xl border p-4 ${calidad.every(c=>c.ok) ? 'bg-[#c6ff00]/10 border-[#c6ff00]/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
+                  <div className="font-bold text-[11px] tracking-widest mb-2">{calidad.every(c=>c.ok) ? 'MENSAJE PERSONALIZADO ✓' : 'MENSAJE POCO PERSONALIZADO: CORRÍGELO ANTES DE ENVIAR'}</div>
+                  <div className="space-y-1">{calidad.map(c=>(
+                    <div key={c.texto} className="text-[11px] flex items-center gap-2">{c.ok ? <Check size={12} className="text-[#c6ff00]"/> : <AlertTriangle size={12} className="text-amber-300"/>}{c.texto}</div>
+                  ))}</div>
+                  <div className="text-[10px] text-white/40 mt-2">Prueba final: si cambiando solo el nombre sirviera para otra clínica, reescribe el gancho en el paso 2.</div>
+                </div>
+              )}
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden">
                 <div className="flex border-b border-white/10">
                   {[
                     {id:'email', label:'EMAIL', icon: Mail},
-                    {id:'whatsapp', label:'WHATSAPP', icon: MessageSquare},
+                    {id:'whatsapp', label:'DM / WHATSAPP', icon: MessageSquare},
                     {id:'llamada', label:'LLAMADA', icon: Phone},
                   ].map(t=>{
                     const Icon = t.icon;
@@ -793,7 +818,7 @@ ${miNombre} · ${miAgencia}`);
                   {prospectTab==='whatsapp' && (
                     <div className="space-y-3">
                       <textarea value={waTpl} onChange={e=>setWaTpl(e.target.value)} className="w-full h-[200px] bg-black border border-white/10 rounded-xl p-4 text-[13px] leading-relaxed outline-none focus:border-white/20"/>
-                      <button onClick={()=>copy(waTpl)} className="w-full bg-[#25D366] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR WHATSAPP</button>
+                      <button onClick={()=>copy(waTpl)} className="w-full bg-[#25D366] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR DM ({waTpl.length} caracteres)</button>
                     </div>
                   )}
                   {prospectTab==='llamada' && (
@@ -807,13 +832,23 @@ ${miNombre} · ${miAgencia}`);
             </div>
 
             <div className="col-span-12 lg:col-span-5 space-y-4">
+              <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 space-y-3">
+                <div className="font-bold text-[11px] tracking-widest text-white/60">SEGUIMIENTOS (aportan algo nuevo, no "¿viste mi mensaje?")</div>
+                <div>
+                  <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otro dato de su web</div>
+                  <textarea value={seg1Tpl} onChange={e=>setSeg1Tpl(e.target.value)} className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-[12px] outline-none"/>
+                  <button onClick={()=>copy(seg1Tpl)} className="mt-1 w-full bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 1</button>
+                </div>
+                <div>
+                  <div className="text-[10px] text-white/40 mb-1">A LOS 7 DÍAS · el último: entrega el vídeo</div>
+                  <textarea value={seg2Tpl} onChange={e=>setSeg2Tpl(e.target.value)} className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-[12px] outline-none"/>
+                  <button onClick={()=>copy(seg2Tpl)} className="mt-1 w-full bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 2</button>
+                </div>
+              </div>
+
               <div className="rounded-2xl bg-[#c6ff00]/10 border border-[#c6ff00]/30 p-4">
                 <div className="flex items-center gap-2 mb-3"><Mic size={16} className="text-black bg-[#c6ff00] rounded-full p-0.5"/><span className="font-display font-bold text-sm text-[#c6ff00]">MÓDULO VOZ CLONADA CORTASIA</span><span className="ml-auto text-[10px] px-2 py-1 bg-black text-[#c6ff00] rounded font-bold">OPERATIVO</span></div>
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  <input value={vozNombre} onChange={e=>setVozNombre(e.target.value)} placeholder="Nombre" className="bg-black border border-white/15 rounded-lg px-2 py-2 text-[11px]"/>
-                  <input value={vozEmpresa} onChange={e=>setVozEmpresa(e.target.value)} placeholder="Empresa" className="bg-black border border-white/15 rounded-lg px-2 py-2 text-[11px]"/>
-                  <input value={vozFallo} onChange={e=>setVozFallo(e.target.value)} placeholder="Fallo detectado" className="bg-black border border-white/15 rounded-lg px-2 py-2 text-[11px]"/>
-                </div>
+                <input value={contacto} onChange={e=>setContacto(e.target.value)} placeholder="Nombre de la persona (opcional)" className="mb-3 w-full bg-black border border-white/15 rounded-lg px-2 py-2 text-[11px]"/>
                 <div className="flex gap-1 mb-3">
                   {[
                     {id:'inicial', label:'INICIAL 27s'},
@@ -850,6 +885,18 @@ ${miNombre} · ${miAgencia}`);
         {step===4 && (
           <div className="grid grid-cols-12 gap-5">
             <div className="col-span-12 lg:col-span-4 space-y-4">
+              <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
+                <div className="font-bold text-[11px] tracking-widest text-white/60 mb-2">PLAN QUE VAS A PROPONER (sale en «¿cuánto cuesta?»)</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {PLANES.map(p=>(
+                    <button key={p.id} onClick={()=>setPlanId(p.id)} className={`p-2 rounded-lg border text-left ${planId===p.id ? 'bg-[#c6ff00]/15 border-[#c6ff00]/50' : 'bg-black border-white/10'}`}>
+                      <div className="font-bold text-[11px]">{p.nombre}</div>
+                      <div className="text-[10px] text-white/60">{p.cuota} €/mes</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[10px] text-white/40 mt-2">{plan.para}. Por defecto, Pro.</div>
+              </div>
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
                 <div className="flex items-center gap-2 mb-3"><Brain size={16} className="text-[#c6ff00]"/><span className="font-display font-bold text-sm">CLOSER IA V4 • ACTIVACIÓN</span></div>
                 <div className="text-[11px] text-white/40 mb-3">Marca ≥2 para activar lógica consultiva. Actual: {closerChecks.length}/6</div>
@@ -944,6 +991,24 @@ ${miNombre} · ${miAgencia}`);
                 )}
                 <div className="flex items-center gap-2 mb-5"><DollarSign size={18} className="text-[#c6ff00]"/><span className="font-display font-bold">PAGO OPERATIVO REAL</span><span className="ml-auto text-[10px] px-2 py-1 bg-[#c6ff00] text-black rounded font-bold">STRIPE / BIZUM</span></div>
 
+                <div className="mb-4">
+                  <div className="text-[11px] text-white/50 mb-2">PLAN QUE CONTRATA</div>
+                  <div className="grid grid-cols-3 gap-2">
+                  {PLANES.map(p=>(
+                    <button key={p.id} onClick={()=>setPlanId(p.id)} className={`text-left p-3 rounded-xl border ${planId===p.id ? 'bg-[#c6ff00]/15 border-[#c6ff00]/50' : 'bg-black border-white/10'}`}>
+                      <div className="font-bold text-[12px]">{p.nombre}{p.id==='pro' ? ' ★' : ''}</div>
+                      <div className="text-[11px] text-white/70">{p.cuota} €/mes · alta {euro(p.alta)} €</div>
+                      <div className="text-[10px] text-white/40">+ IVA · {p.para}</div>
+                    </button>
+                  ))}
+                </div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button onClick={()=>setFasePago('firma')} className={`py-2 rounded-lg text-[11px] font-bold ${fasePago==='firma' ? 'bg-white text-black' : 'bg-black border border-white/10 text-white/60'}`}>1.º PAGO · AL FIRMAR (50 % alta)</button>
+                    <button onClick={()=>setFasePago('activacion')} className={`py-2 rounded-lg text-[11px] font-bold ${fasePago==='activacion' ? 'bg-white text-black' : 'bg-black border border-white/10 text-white/60'}`}>2.º PAGO · AL ACTIVAR (50 % + cuota)</button>
+                  </div>
+                  <div className="text-[10px] text-white/40 mt-2">Importes con IVA incluido (21 %). {fasePago==='firma' ? 'La cuota mensual empieza en el 2.º pago, cuando el agente ya funciona.' : 'Desde este pago, Stripe cobra la cuota cada mes.'} El consumo de WhatsApp lo paga la clínica a Meta.</div>
+                </div>
+
                 <div className="grid md:grid-cols-2 gap-4">
                   <div><label className="text-[11px] text-white/50">IMPORTE (€) * editable</label><input value={importe} onChange={e=>setImporte(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm font-bold"/></div>
                   <div><label className="text-[11px] text-white/50">EMAIL CLIENTE</label><input value={emailCliente} onChange={e=>setEmailCliente(e.target.value)} placeholder="cliente@empresa.com" className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div>
@@ -970,40 +1035,24 @@ ${miNombre} · ${miAgencia}`);
 
             <div className="col-span-12 lg:col-span-5 space-y-4">
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-                <div className="font-bold text-sm mb-3">CHECKLIST QUÉ INCLUYE (48h)</div>
+                <div className="font-bold text-sm mb-3">QUÉ INCLUYE EL PLAN {plan.nombre.toUpperCase()} ({plan.plazo})</div>
                 <div className="space-y-2 text-[12px]">
-                  {[
-                    'Setup agente WhatsApp IA con tu branding',
-                    `Flujo: ${problemaConcreto} + derivación humana`,
-                    'Conexión web + WhatsApp + calendario',
-                    'Test real con 5 conversaciones',
-                    'Entrega video Loom 10min + soporte 7 días',
-                  ].map(i=>(
+                  {[...plan.incluye, 'Permanencia mínima 3 meses'].map(i=>(
                     <div key={i} className="flex gap-2"><CheckCircle2 size={14} className="text-[#c6ff00] mt-0.5"/><span>{i}</span></div>
                   ))}
                 </div>
                 <div className="mt-4 p-3 rounded-xl bg-[#c6ff00]/10 border border-[#c6ff00]/20 text-[11px]">
                   <div className="font-bold text-[#c6ff00]">QUÉ PASA DESPUÉS DEL PAGO</div>
-                  <div className="mt-1 text-white/70 leading-relaxed">1. Cliente paga → le llega email automático<br/>2. En 24h le pides accesos web/WhatsApp<br/>3. En 48h entrega operativa + video<br/>4. Cuota de {PRECIO_MENSUAL} €/mes: se cobra en el primer pago y después cada mes</div>
+                  <div className="mt-1 text-white/70 leading-relaxed">1. Paga el 50 % del alta → contrato + encargo de tratamiento de datos (RGPD)<br/>2. Reunión de información (45 min) y alta en Meta de su WhatsApp<br/>3. Montaje y pruebas: {plan.plazo}<br/>4. Al activar: 50 % restante + cuota de {plan.cuota} €/mes + IVA ({euro(conIva(plan.cuota))} €), cada mes<br/>5. Dos semanas de ajuste fino</div>
                 </div>
               </div>
 
               <div className="rounded-2xl bg-black border border-white/10 p-4">
                 <div className="font-bold text-[11px] tracking-widest text-white/40 mb-2">MENSAJE PAGO PARA ENVIAR</div>
                 <div className="text-[12px] leading-relaxed whitespace-pre-wrap bg-white/[0.03] p-3 rounded-xl border border-white/10">
-{`Perfecto ${selectedLead?.nombre.split(' ')[0] || 'equipo'} 🙌
-
-Para arrancar con ${concepto}:
-
-${linkGenerado || `[LINK AQUÍ - ${importe}€]`}
-
-Incluye: setup completo, conexión ${problemaConcreto}, test real y soporte.
-
-Una vez pagado, en 48h lo tenéis funcionando. ¿Avanzamos?
-
-Si prefieres Bizum/manual, dime y te paso datos.`}
+{mensajePago}
                 </div>
-                <button onClick={()=>copy(`Perfecto ${selectedLead?.nombre?.split(' ')[0] || 'equipo'} 🙌\n\nPara arrancar con ${concepto}:\n\n${linkGenerado || `[LINK - ${importe}€]`}\n\nIncluye: setup completo, conexión ${problemaConcreto}, test real y soporte.\n\nUna vez pagado, en 48h lo tenéis funcionando. ¿Avanzamos?`)} className="mt-3 w-full bg-white text-black font-bold py-2.5 rounded-xl text-[12px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR MENSAJE PAGO</button>
+                <button onClick={()=>copy(mensajePago)} className="mt-3 w-full bg-white text-black font-bold py-2.5 rounded-xl text-[12px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR MENSAJE PAGO</button>
               </div>
             </div>
           </div>
