@@ -80,7 +80,7 @@ export default async function handler(req: any, res: any) {
     p.set("line_items[1][price_data][currency]", "eur");
     p.set("line_items[1][price_data][unit_amount]", String(Math.round(cuota * 100)));
     p.set("line_items[1][price_data][recurring][interval]", "month");
-    p.set("line_items[1][price_data][product_data][name]", "Automatización de WhatsApp (cuota mensual)");
+    p.set("line_items[1][price_data][product_data][name]", "Agente IA (cuota mensual)");
   } else {
     p.set("invoice_creation[enabled]", "true");
   }

@@ -42,6 +42,158 @@ export function requireAuth(req: any, res: any): boolean {
   return false;
 }
 
+// ---------- Ficha de personalización ----------
+// Saca de la web datos concretos (tratamientos, precios, horario, cómo se reserva, tipo de WhatsApp)
+// para que los mensajes hablen de ESE negocio y no sean genéricos.
+
+const sinAcentos = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+const ENTIDADES: Record<string, string> = {
+  "&nbsp;": " ", "&amp;": "&", "&aacute;": "á", "&eacute;": "é", "&iacute;": "í", "&oacute;": "ó", "&uacute;": "ú",
+  "&ntilde;": "ñ", "&Aacute;": "Á", "&Eacute;": "É", "&Iacute;": "Í", "&Oacute;": "Ó", "&Uacute;": "Ú", "&Ntilde;": "Ñ",
+  "&euro;": "€", "&quot;": '"', "&#39;": "'", "&rsquo;": "'", "&ldquo;": '"', "&rdquo;": '"', "&ndash;": "–",
+};
+
+function textoVisible(html: string) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<br\s*\/?>|<\/(p|div|li|h\d|tr|td|span)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-zA-Z#0-9]+;/g, (m) => ENTIDADES[m] ?? " ")
+    .replace(/[ \t\r]+/g, " ")
+    .replace(/\n\s*/g, "\n")
+    .trim();
+}
+
+// [nombre que sale en el mensaje, patrón sobre texto sin acentos]
+const TRATAMIENTOS: [string, RegExp][] = [
+  // Estética
+  ["depilación láser", /depilacion (con )?laser|laser de diodo|depilacion definitiva/g],
+  ["limpieza facial", /limpieza facial|higiene facial/g],
+  ["Hydrafacial", /hydrafacial|hydra ?facial/g],
+  ["tratamiento con bótox", /botox|toxina botulinica/g],
+  ["ácido hialurónico", /acido hialuronico|hialuronico/g],
+  ["aumento de labios", /aumento de labios|relleno de labios|perfilado de labios/g],
+  ["mesoterapia", /mesoterapia/g],
+  ["peeling", /peeling/g],
+  ["radiofrecuencia", /radiofrecuencia/g],
+  ["presoterapia", /presoterapia/g],
+  ["criolipólisis", /criolipolisis/g],
+  ["microblading", /microblading/g],
+  ["micropigmentación", /micropigmentacion/g],
+  ["lifting de pestañas", /lifting de pestanas/g],
+  ["extensiones de pestañas", /extensiones de pestanas/g],
+  ["hilos tensores", /hilos tensores/g],
+  ["dermapen", /dermapen|microneedling/g],
+  ["carboxiterapia", /carboxiterapia/g],
+  ["maderoterapia", /maderoterapia/g],
+  ["eliminación de tatuajes", /eliminacion de tatuajes/g],
+  ["manicura", /manicura/g],
+  ["pedicura", /pedicura/g],
+  // Dental
+  ["ortodoncia invisible", /ortodoncia invisible|invisalign/g],
+  ["ortodoncia", /ortodoncia/g],
+  ["implantes dentales", /implantes? dental(es)?|implantologia/g],
+  ["blanqueamiento dental", /blanqueamiento/g],
+  ["limpieza dental", /limpieza dental|higiene dental|limpieza bucal/g],
+  ["carillas", /carillas/g],
+  ["endodoncia", /endodoncia/g],
+  // Fisio / salud
+  ["fisioterapia", /fisioterapia/g],
+  ["osteopatía", /osteopatia/g],
+  ["suelo pélvico", /suelo pelvico/g],
+  ["punción seca", /puncion seca/g],
+  ["pilates", /pilates/g],
+  // Peluquería
+  ["balayage", /balayage/g],
+  ["alisado de keratina", /keratina|alisado/g],
+  ["mechas", /mechas/g],
+];
+
+const PLATAFORMAS_RESERVA: [string, RegExp][] = [
+  ["Doctoralia", /doctoralia/], ["Treatwell", /treatwell/], ["Booksy", /booksy/], ["Fresha", /fresha/],
+  ["Calendly", /calendly\.com/], ["SimplyBook", /simplybook/], ["Cal.com", /cal\.com/], ["Setmore", /setmore/],
+  ["Reservio", /reservio/], ["Bookeo", /bookeo/], ["Acuity", /acuityscheduling/], ["Flowww", /flowww/],
+  ["Koibox", /koibox/], ["Timp", /timp\.pro|timpapp/], ["Bewe", /bewe\.io|bewe\.co/]
+];
+
+const CHATS: [string, RegExp][] = [
+  ["Tidio", /tidio/], ["Crisp", /crisp\.chat/], ["Intercom", /intercom/], ["Tawk.to", /tawk\.to/],
+  ["LiveChat", /livechatinc/], ["Zendesk", /zdassets|zendesk/], ["HubSpot", /js\.hs-scripts|hubspot.*conversations/],
+  ["ManyChat", /manychat/], ["Landbot", /landbot/], ["Chatbase", /chatbase/], ["Botpress", /botpress/],
+];
+
+const WIDGETS_WHATSAPP = /joinchat|wa-widget|getbutton\.io|elfsight.*whatsapp|superlemon|wati\.io|whatsapp-button|click-to-chat|ht-ctc/;
+
+export function extraerFicha(html: string) {
+  const h = html.toLowerCase();
+  const texto = textoVisible(html);
+  const plano = sinAcentos(texto);
+
+  const titulo = (html.match(/<title>([^<]{3,120})<\/title>/i)?.[1] || "").replace(/\s+/g, " ").trim();
+
+  // Tratamientos ordenados por número de menciones
+  const encontrados = TRATAMIENTOS
+    .map(([nombre, re]) => ({ nombre, n: (plano.match(re) || []).length }))
+    .filter((t) => t.n > 0)
+    .sort((a, b) => b.n - a.n);
+  let tratamientos = encontrados.map((t) => t.nombre);
+  if (tratamientos.includes("ortodoncia invisible")) tratamientos = tratamientos.filter((t) => t !== "ortodoncia");
+  tratamientos = tratamientos.slice(0, 4);
+
+  // Primer precio que aparece cerca de un tratamiento detectado
+  let precio: { tratamiento: string; euros: number } | null = null;
+  for (const nombre of tratamientos) {
+    const re = TRATAMIENTOS.find(([n]) => n === nombre)![1];
+    const src = new RegExp(`(?:${re.source})[^\\n€]{0,60}?(\\d{2,4})(?:[.,]\\d{2})?\\s?(?:€|eur)`);
+    const m = plano.match(src);
+    if (m) {
+      const euros = Number(m[m.length - 1]);
+      if (euros >= 15 && euros <= 5000) { precio = { tratamiento: nombre, euros }; break; }
+    }
+  }
+
+  // Horario tal como aparece en la web
+  const hora = String.raw`\d{1,2}(?:[:.h]\d{2})?\s?h?`;
+  const reHorario = new RegExp(String.raw`(lunes|l\s?-\s?v|lun\.?|de lunes)[^\n]{0,80}?${hora}\s?(?:-|–|a|hasta)\s?${hora}[^\n]{0,60}`, "i");
+  const mh = texto.match(reHorario) || sinAcentos(texto).match(reHorario);
+  const horario = mh ? mh[0].replace(/\s+/g, " ").trim().slice(0, 140) : "";
+  const abreSabado = /sabados?\s*:?[^\n]{0,30}?\d{1,2}[:.h]\d{2}/.test(plano) && !/sabados?\s*:?\s*cerrado/.test(plano);
+  const abreDomingo = /domingos?\s*:?[^\n]{0,30}?\d{1,2}[:.h]\d{2}/.test(plano) && !/domingos?\s*:?\s*cerrado/.test(plano);
+
+  // Cómo se pide cita
+  const plataforma = PLATAFORMAS_RESERVA.find(([, re]) => re.test(h))?.[0] || "";
+  const reservaEmbebida = /<iframe[^>]+(reserv|booking|cita|agenda)/.test(h) || /type=["'](date|datetime-local|time)["']/.test(h);
+  const hayFormulario = /<form[\s>]/.test(h) && /<textarea|type=["']email["']|name=["'](nombre|name|telefono|phone)/.test(h);
+  const textoCita = /pedir cita|reservar cita|solicitar cita|reserva tu cita|pide tu cita|cita previa/.test(plano);
+  const reservaTipo: "plataforma" | "formulario" | "telefono" | "ninguna" =
+    plataforma || reservaEmbebida ? "plataforma" : hayFormulario ? "formulario" : textoCita ? "telefono" : "ninguna";
+
+  // WhatsApp y chat
+  const tieneWa = /wa\.me\/|api\.whatsapp\.com|whatsapp:\/\/|web\.whatsapp\.com/.test(h) || WIDGETS_WHATSAPP.test(h);
+  const whatsappTipo: "widget" | "enlace" | "" = !tieneWa ? "" : WIDGETS_WHATSAPP.test(h) ? "widget" : "enlace";
+  const chat = CHATS.find(([, re]) => re.test(h))?.[0] || "";
+
+  const instagram = (h.match(/instagram\.com\/([a-z0-9._]{2,30})/)?.[1] || "").replace(/^(p|reel|explore)$/, "");
+
+  return {
+    titulo,
+    tratamientos,
+    precio,
+    horario,
+    abreSabado,
+    abreDomingo,
+    reservaTipo,
+    plataforma: plataforma || (reservaEmbebida ? "reserva integrada" : ""),
+    whatsappTipo,
+    chat,
+    instagram,
+    pocoTexto: texto.length < 600, // web montada con JavaScript: hay que revisarla a mano
+  };
+}
+
 // Analiza la web de un negocio y devuelve los huecos detectados (ids de CHECKLIST_ITEMS).
 export default async function handler(req: any, res: any) {
   if (!requireAuth(req, res)) return;
@@ -86,9 +238,9 @@ export default async function handler(req: any, res: any) {
     const segundos = (Date.now() - start) / 1000;
     const h = html.toLowerCase();
 
-    const tieneWhatsapp = /wa\.me\/|api\.whatsapp\.com|whatsapp:\/\/|web\.whatsapp\.com|joinchat|wa-widget/.test(h);
-    const tieneReservas =
-      /calendly\.com|doctoralia|treatwell|simplybook|bookeo|setmore|reservio|acuityscheduling|fresha|cal\.com|booksy|agenda online|reserva online|reservar cita|pedir cita|solicitar cita|book now|reserva tu cita/.test(h);
+    const ficha = extraerFicha(html);
+    const tieneWhatsapp = ficha.whatsappTipo !== "";
+    const tieneReservas = ficha.reservaTipo === "plataforma";
     const tienePixel =
       /fbq\(|connect\.facebook\.net|googletagmanager\.com|gtag\(|google-analytics\.com|analytics\.tiktok\.com|hotjar/.test(h);
     const tieneSchema =
@@ -123,6 +275,7 @@ export default async function handler(req: any, res: any) {
       seoScore,
       velocidad: `${segundos.toFixed(1)}s`,
       detalle: { tieneWhatsapp, tieneReservas, tienePixel, tieneSchema, imagenes: imgs, status: response.status },
+      ficha,
     });
   } catch (error: any) {
     return res.status(502).json({
