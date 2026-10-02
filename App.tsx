@@ -7,9 +7,18 @@ import {
 } from 'lucide-react';
 import { Ficha, ganchos, construirMensajes, lineaPositiva, tratamientoPorDefecto } from './personalizacion';
 
-// Precios de la web (rociopinedaia.es): automatización de WhatsApp
-const PRECIO_SETUP = 297;
-const PRECIO_MENSUAL = 39;
+// Planes de la agencia (rociopinedaia.es). Precios sin IVA.
+const PLANES = [
+  { id: 'esencial', nombre: 'Esencial', cuota: 149, alta: 390, para: 'clínicas de 1–2 profesionales', plazo: '5–7 días laborables',
+    incluye: ['Agente de WhatsApp 24/7 (dudas, precios, tratamientos, horarios)', 'Capta los datos del cliente y avisa a la clínica', 'Hasta 300 conversaciones al mes', 'Ajuste fino 2 semanas'] },
+  { id: 'pro', nombre: 'Pro', cuota: 279, alta: 790, para: 'clínicas de 2–5 profesionales', plazo: '7–10 días laborables',
+    incluye: ['Todo lo del Esencial', 'Agenda citas sola en su calendario', 'Recordatorios para reducir ausencias', 'Instagram (mensajes directos)', 'Panel de contactos · hasta 600 conversaciones/mes'] },
+  { id: 'premium', nombre: 'Premium', cuota: 590, alta: 1490, para: 'clínicas grandes o con varias sedes', plazo: '2–3 semanas',
+    incluye: ['Todo lo del Pro', 'Agente de voz para llamadas perdidas y fuera de horario', 'Conexión con su programa de gestión', 'Campaña mensual de reactivación', 'Informe mensual · 1.200 conversaciones + 300 min'] },
+] as const;
+type PlanId = typeof PLANES[number]['id'];
+const conIva = (n: number) => Math.round(n * 1.21 * 100) / 100;
+const euro = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
 
 // CONSTANTE EXACTA REQUERIDA
 const OBJECIONES_V4 = [
@@ -19,7 +28,7 @@ const OBJECIONES_V4 = [
   {key:'Me lo pienso', estrategia:'Clasificar como SEGUIMIENTO → aportar valor relacionado con la conversación → dejar espacio', queEvitar:'No preguntar "¿lo has pensado?", "¿te has decidido?" ni crear urgencia falsa', ejemplo:'Claro, sin problema. En vuestro caso, lo importante sería que el agente se encargara de [problema concreto] y derivara al equipo los casos que necesitan atención humana. Así podéis valorarlo con calma.'},
   {key:'No me interesa', estrategia:'Clasificar como NO_INTERESADO → cerrar cordialmente → detener el proceso comercial', queEvitar:'No intentar darle la vuelta automáticamente ni presentar otra oferta', ejemplo:'Sin problema, gracias por decírmelo claro. Cierro aquí el tema. Que vaya todo genial con el negocio.'},
   {key:'No me contactes más', estrategia:'Clasificar inmediatamente como NO_CONTACTAR → detener cualquier seguimiento o contacto comercial', queEvitar:'No hacer preguntas, no ofrecer alternativas y no intentar recuperar la venta', ejemplo:'Entendido. Cierro el tema y no volveré a contactarte por esto. Gracias por decírmelo.'},
-  {key:'¿Cuánto cuesta?', estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:`Por lo que hemos hablado, el agente de WhatsApp encajaría con lo que necesitáis. El setup es de ${PRECIO_SETUP} € y después ${PRECIO_MENSUAL} €/mes. Incluye [resumen de lo incluido]. Si quieres avanzar, te explico el siguiente paso.`},
+  {key:'¿Cuánto cuesta?', estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:'Por lo que hemos hablado, os encaja el plan [plan]: [cuota] €/mes + IVA y [alta] € + IVA de alta, que incluye montarlo, probarlo con vosotros y ajustarlo dos semanas. [retorno]Si quieres avanzar, te explico el siguiente paso.'},
   {key:'No necesito IA', estrategia:'No discutir → entender si realmente no existe una necesidad o si simplemente no quiere utilizar IA → si no hay necesidad, cerrar', queEvitar:'No intentar convencer de que necesita IA', ejemplo:'Perfecto, lo entiendo. Al final lo importante no es utilizar IA por utilizarla, sino que resuelva un problema real. Si ahora mismo no tenéis esa necesidad, no tendría sentido añadir nada.'},
   {key:'Ya tengo a alguien', estrategia:'Validar → diferenciar sustitución de apoyo → comprobar si existe alguna tarea repetitiva que actualmente recaiga sobre esa persona', queEvitar:'No cuestionar al empleado ni plantear la IA como sustitución automática', ejemplo:'Perfecto. De hecho, puede complementar perfectamente ese trabajo. La idea sería quitarle las consultas repetitivas y dejarle los casos que realmente necesitan intervención.'},
   {key:'Ahora no', estrategia:'No presionar → identificar si es un problema de momento o falta de interés → si pide retomarlo más adelante, clasificar como SEGUIMIENTO', queEvitar:'No crear urgencia artificial', ejemplo:'Entendido, ningún problema. Si ahora no es el momento, lo dejamos aquí. Si más adelante quieres retomarlo, seguimos desde donde lo dejamos.'},
@@ -129,8 +138,11 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatHist, setChatHist] = useState<{role:'prospecto'|'ia', text:string, objecion?: typeof OBJECIONES_V4[0], estado?: EstadoCloser}[]>([]);
   const [problemaConcreto, setProblemaConcreto] = useState('gestión de citas fuera de horario');
-  const [importe, setImporte] = useState(String(PRECIO_SETUP));
-  const [concepto, setConcepto] = useState('Automatización de WhatsApp (implantación)');
+  const [planId, setPlanId] = useState<PlanId>('pro');
+  const [fasePago, setFasePago] = useState<'firma'|'activacion'>('firma');
+  const plan = PLANES.find(p=>p.id===planId)!;
+  const [importe, setImporte] = useState(String(conIva(790/2)));
+  const [concepto, setConcepto] = useState('Agente IA plan Pro — 50 % del alta (al firmar)');
   const [stripeLink, setStripeLink] = useState('');
   const [emailCliente, setEmailCliente] = useState('');
   const [linkGenerado, setLinkGenerado] = useState('');
@@ -388,7 +400,9 @@ export default function App() {
       if(low.includes('interesa') || low.includes('cuéntame') || low.includes('más info')) newEstado='INTERES';
       else if(low.includes('ok') || low.includes('vale')) newEstado='INTERACCION';
     }
-    const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto) : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
+    const precioVisto = selectedLead?.ficha?.precio;
+    const retorno = precioVisto ? `Con ${precioVisto.tratamiento} a ${precioVisto.euros} €, se paga con ${Math.ceil(plan.cuota / precioVisto.euros)} citas al mes. ` : '';
+    const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto).replace(/\[plan\]/g, plan.nombre).replace(/\[cuota\]/g, euro(plan.cuota)).replace(/\[alta\]/g, euro(plan.alta)).replace(/\[retorno\]/g, retorno) : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
 
     setChatHist(prev=>[
       ...prev,
@@ -447,7 +461,24 @@ export default function App() {
 
   const [generando, setGenerando] = useState(false);
   const [errorPago, setErrorPago] = useState('');
-  const [mensualidad, setMensualidad] = useState(String(PRECIO_MENSUAL));
+  const [mensualidad, setMensualidad] = useState('0');
+  // Plan + fase rellenan importe, cuota y concepto (IVA incluido en lo que paga la clínica)
+  useEffect(()=>{
+    setImporte(String(conIva(plan.alta/2)));
+    setMensualidad(fasePago==='firma' ? '0' : String(conIva(plan.cuota)));
+    setConcepto(`Agente IA plan ${plan.nombre} — ${fasePago==='firma' ? '50 % del alta (al firmar)' : '50 % del alta + cuota mensual (al activar)'}`);
+  },[planId, fasePago]);
+  const mensajePago = fasePago==='firma'
+    ? `Perfecto${contacto ? ' ' + contacto : ''}. Os confirmo el plan ${plan.nombre} para ${selectedLead?.nombre || 'la clínica'}: ${euro(plan.cuota)} €/mes + IVA y ${euro(plan.alta)} € + IVA de alta, con permanencia mínima de 3 meses. El consumo de WhatsApp lo factura Meta directamente a la clínica.
+
+Para empezar, este es el enlace del 50 % del alta (${euro(Number(importe))} € con IVA):
+${linkGenerado || '[ENLACE DE PAGO]'}
+
+En cuanto esté pagado, os mando el contrato y fijamos la reunión de 45 minutos para recoger tratamientos, precios y horarios. Lo tendréis funcionando en ${plan.plazo}.`
+    : `${contacto ? contacto + ', el' : 'El'} agente ya está funcionando en ${selectedLead?.nombre || 'la clínica'}. Este es el enlace del 50 % restante del alta junto con la primera cuota del plan ${plan.nombre} (${euro(conIva(plan.cuota))} €/mes con IVA, que se renueva cada mes):
+${linkGenerado || '[ENLACE DE PAGO]'}
+
+Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`;
 
   const generarLink = async () => {
     setErrorPago('');
@@ -855,6 +886,18 @@ export default function App() {
           <div className="grid grid-cols-12 gap-5">
             <div className="col-span-12 lg:col-span-4 space-y-4">
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
+                <div className="font-bold text-[11px] tracking-widest text-white/60 mb-2">PLAN QUE VAS A PROPONER (sale en «¿cuánto cuesta?»)</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {PLANES.map(p=>(
+                    <button key={p.id} onClick={()=>setPlanId(p.id)} className={`p-2 rounded-lg border text-left ${planId===p.id ? 'bg-[#c6ff00]/15 border-[#c6ff00]/50' : 'bg-black border-white/10'}`}>
+                      <div className="font-bold text-[11px]">{p.nombre}</div>
+                      <div className="text-[10px] text-white/60">{p.cuota} €/mes</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[10px] text-white/40 mt-2">{plan.para}. Por defecto, Pro.</div>
+              </div>
+              <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
                 <div className="flex items-center gap-2 mb-3"><Brain size={16} className="text-[#c6ff00]"/><span className="font-display font-bold text-sm">CLOSER IA V4 • ACTIVACIÓN</span></div>
                 <div className="text-[11px] text-white/40 mb-3">Marca ≥2 para activar lógica consultiva. Actual: {closerChecks.length}/6</div>
                 <div className="space-y-2">
@@ -948,6 +991,24 @@ export default function App() {
                 )}
                 <div className="flex items-center gap-2 mb-5"><DollarSign size={18} className="text-[#c6ff00]"/><span className="font-display font-bold">PAGO OPERATIVO REAL</span><span className="ml-auto text-[10px] px-2 py-1 bg-[#c6ff00] text-black rounded font-bold">STRIPE / BIZUM</span></div>
 
+                <div className="mb-4">
+                  <div className="text-[11px] text-white/50 mb-2">PLAN QUE CONTRATA</div>
+                  <div className="grid grid-cols-3 gap-2">
+                  {PLANES.map(p=>(
+                    <button key={p.id} onClick={()=>setPlanId(p.id)} className={`text-left p-3 rounded-xl border ${planId===p.id ? 'bg-[#c6ff00]/15 border-[#c6ff00]/50' : 'bg-black border-white/10'}`}>
+                      <div className="font-bold text-[12px]">{p.nombre}{p.id==='pro' ? ' ★' : ''}</div>
+                      <div className="text-[11px] text-white/70">{p.cuota} €/mes · alta {euro(p.alta)} €</div>
+                      <div className="text-[10px] text-white/40">+ IVA · {p.para}</div>
+                    </button>
+                  ))}
+                </div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button onClick={()=>setFasePago('firma')} className={`py-2 rounded-lg text-[11px] font-bold ${fasePago==='firma' ? 'bg-white text-black' : 'bg-black border border-white/10 text-white/60'}`}>1.º PAGO · AL FIRMAR (50 % alta)</button>
+                    <button onClick={()=>setFasePago('activacion')} className={`py-2 rounded-lg text-[11px] font-bold ${fasePago==='activacion' ? 'bg-white text-black' : 'bg-black border border-white/10 text-white/60'}`}>2.º PAGO · AL ACTIVAR (50 % + cuota)</button>
+                  </div>
+                  <div className="text-[10px] text-white/40 mt-2">Importes con IVA incluido (21 %). {fasePago==='firma' ? 'La cuota mensual empieza en el 2.º pago, cuando el agente ya funciona.' : 'Desde este pago, Stripe cobra la cuota cada mes.'} El consumo de WhatsApp lo paga la clínica a Meta.</div>
+                </div>
+
                 <div className="grid md:grid-cols-2 gap-4">
                   <div><label className="text-[11px] text-white/50">IMPORTE (€) * editable</label><input value={importe} onChange={e=>setImporte(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm font-bold"/></div>
                   <div><label className="text-[11px] text-white/50">EMAIL CLIENTE</label><input value={emailCliente} onChange={e=>setEmailCliente(e.target.value)} placeholder="cliente@empresa.com" className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div>
@@ -974,40 +1035,24 @@ export default function App() {
 
             <div className="col-span-12 lg:col-span-5 space-y-4">
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-                <div className="font-bold text-sm mb-3">CHECKLIST QUÉ INCLUYE (48h)</div>
+                <div className="font-bold text-sm mb-3">QUÉ INCLUYE EL PLAN {plan.nombre.toUpperCase()} ({plan.plazo})</div>
                 <div className="space-y-2 text-[12px]">
-                  {[
-                    'Setup agente WhatsApp IA con tu branding',
-                    `Flujo: ${problemaConcreto} + derivación humana`,
-                    'Conexión web + WhatsApp + calendario',
-                    'Test real con 5 conversaciones',
-                    'Entrega video Loom 10min + soporte 7 días',
-                  ].map(i=>(
+                  {[...plan.incluye, 'Permanencia mínima 3 meses'].map(i=>(
                     <div key={i} className="flex gap-2"><CheckCircle2 size={14} className="text-[#c6ff00] mt-0.5"/><span>{i}</span></div>
                   ))}
                 </div>
                 <div className="mt-4 p-3 rounded-xl bg-[#c6ff00]/10 border border-[#c6ff00]/20 text-[11px]">
                   <div className="font-bold text-[#c6ff00]">QUÉ PASA DESPUÉS DEL PAGO</div>
-                  <div className="mt-1 text-white/70 leading-relaxed">1. Cliente paga → le llega email automático<br/>2. En 24h le pides accesos web/WhatsApp<br/>3. En 48h entrega operativa + video<br/>4. Cuota de {PRECIO_MENSUAL} €/mes: se cobra en el primer pago y después cada mes</div>
+                  <div className="mt-1 text-white/70 leading-relaxed">1. Paga el 50 % del alta → contrato + encargo de tratamiento de datos (RGPD)<br/>2. Reunión de información (45 min) y alta en Meta de su WhatsApp<br/>3. Montaje y pruebas: {plan.plazo}<br/>4. Al activar: 50 % restante + cuota de {plan.cuota} €/mes + IVA ({euro(conIva(plan.cuota))} €), cada mes<br/>5. Dos semanas de ajuste fino</div>
                 </div>
               </div>
 
               <div className="rounded-2xl bg-black border border-white/10 p-4">
                 <div className="font-bold text-[11px] tracking-widest text-white/40 mb-2">MENSAJE PAGO PARA ENVIAR</div>
                 <div className="text-[12px] leading-relaxed whitespace-pre-wrap bg-white/[0.03] p-3 rounded-xl border border-white/10">
-{`Perfecto ${selectedLead?.nombre.split(' ')[0] || 'equipo'} 🙌
-
-Para arrancar con ${concepto}:
-
-${linkGenerado || `[LINK AQUÍ - ${importe}€]`}
-
-Incluye: setup completo, conexión ${problemaConcreto}, test real y soporte.
-
-Una vez pagado, en 48h lo tenéis funcionando. ¿Avanzamos?
-
-Si prefieres Bizum/manual, dime y te paso datos.`}
+{mensajePago}
                 </div>
-                <button onClick={()=>copy(`Perfecto ${selectedLead?.nombre?.split(' ')[0] || 'equipo'} 🙌\n\nPara arrancar con ${concepto}:\n\n${linkGenerado || `[LINK - ${importe}€]`}\n\nIncluye: setup completo, conexión ${problemaConcreto}, test real y soporte.\n\nUna vez pagado, en 48h lo tenéis funcionando. ¿Avanzamos?`)} className="mt-3 w-full bg-white text-black font-bold py-2.5 rounded-xl text-[12px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR MENSAJE PAGO</button>
+                <button onClick={()=>copy(mensajePago)} className="mt-3 w-full bg-white text-black font-bold py-2.5 rounded-xl text-[12px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR MENSAJE PAGO</button>
               </div>
             </div>
           </div>
