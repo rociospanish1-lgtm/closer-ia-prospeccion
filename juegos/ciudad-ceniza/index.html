@@ -37,7 +37,8 @@ body{background:var(--night);color:var(--ink);font-family:var(--body);overflow:h
 .pill.ready{color:#1a1206;background:var(--sodium);border-color:var(--sodium)}
 .hp{width:110px;height:8px;background:#1c2338;border:1px solid var(--line);border-radius:2px;overflow:hidden;margin-top:5px}
 .hp>i{display:block;height:100%;width:100%;background:var(--web);transition:width .2s}
-#pauseBtn{pointer-events:auto;margin-left:auto;background:var(--panel);color:var(--ink);border:1px solid var(--line);font:600 12px var(--body);letter-spacing:.08em;padding:7px 12px;border-radius:3px;cursor:pointer}
+.hud-btns{margin-left:auto;display:flex;gap:8px;pointer-events:auto}
+.hud-btn{background:var(--panel);color:var(--ink);border:1px solid var(--line);font:600 12px var(--body);letter-spacing:.08em;padding:7px 12px;border-radius:3px;cursor:pointer}
 button:focus-visible{outline:2px solid var(--sodium);outline-offset:2px}
 #hint{position:absolute;left:50%;transform:translateX(-50%);bottom:24px;width:max-content;max-width:calc(100% - 32px);background:var(--panel);border:1px solid var(--line);padding:8px 12px;font-size:13px;line-height:1.4;border-radius:3px;pointer-events:none;text-align:center}
 body.touch #hint{bottom:auto;top:96px}
@@ -112,7 +113,7 @@ kbd{font-family:var(--body);font-size:11px;border:1px solid var(--line);border-b
     <div class="hud-item"><span class="hud-label">Noche</span><span class="hud-val" id="hudTime">3:00</span></div>
     <div class="hud-item"><span class="hud-label">Velocidad</span><span class="hud-val" id="hudSpeed">0 km/h</span></div>
     <div class="hud-item"><span class="hud-label">Salud</span><div class="hp"><i id="hudHp"></i></div></div>
-    <button id="pauseBtn" type="button">PAUSA</button>
+    <div class="hud-btns"><button id="soundBtn" class="hud-btn" type="button">SONIDO: SÍ</button><button id="pauseBtn" class="hud-btn" type="button">PAUSA</button></div>
   </div>
   <div id="hint" hidden></div>
 
@@ -173,7 +174,7 @@ kbd{font-family:var(--body);font-size:11px;border:1px solid var(--line);border-b
         <div><b>Telaraña o gancho</b> · <kbd>J</kbd> o clic, apunta con el ratón</div>
         <div><b>Recoger cuerda · trepar</b> · <kbd>W</kbd> / <kbd>S</kbd></div>
         <div><b>Relevo</b> (cambiar de héroe) · <kbd>Q</kbd></div>
-        <div><b>Golpe</b> · <kbd>K</kbd> o cáeles encima · <b>Pausa</b> <kbd>P</kbd></div>
+        <div><b>Golpe</b> · <kbd>K</kbd> o cáeles encima · <b>Pausa</b> <kbd>P</kbd> · <b>Sonido</b> <kbd>M</kbd></div>
       </div>
       <div class="row">
         <button class="primary" id="startBtn" type="button">Empezar patrulla</button>
@@ -316,6 +317,7 @@ function placeDuo(b) {
 }
 
 function startGame() {
+  audioStart();
   L = genLevel((Math.random() * 1e9) | 0);
   hero = startHero;
   placeDuo(L.bs.find(b => b.x > 120 && b.w >= 170) || L.bs[1]);
@@ -344,14 +346,15 @@ function setState(s) {
   $('touch').hidden = s !== 'play';
   $('hint').hidden = !(s === 'play' && hintT > 0);
   if (s === 'menu') syncCards();
+  audioState(s);
 }
 
 /* ---------- Entrada ---------- */
 const KEYMAP = {
   ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right', ArrowUp:'up', KeyW:'up', ArrowDown:'down', KeyS:'down',
-  Space:'jump', KeyJ:'shoot', KeyK:'attack', KeyQ:'swap', KeyP:'pause', Escape:'pause'
+  Space:'jump', KeyJ:'shoot', KeyK:'attack', KeyQ:'swap', KeyP:'pause', Escape:'pause', KeyM:'mute'
 };
-const ACTS = ['left','right','up','down','jump','shoot','attack','swap','pause'];
+const ACTS = ['left','right','up','down','jump','shoot','attack','swap','pause','mute'];
 const keyHeld = {}, touchHeld = {}, held = {}, prev = {};
 // Las pulsaciones se guardan hasta el siguiente fotograma para no perder toques muy rápidos.
 const tapped = new Set();
@@ -528,7 +531,7 @@ function tryShoot() {
     const a = hiloAnchor(angs);
     if (a) {
       p.rope = { x: a.x, y: a.y, L: a.d, max: a.d + 140, age: 0 }; p.grap = null;
-      burst(a.x, a.y, 6, '#ffffff', 110);
+      burst(a.x, a.y, 6, '#ffffff', 110); SFX.web();
       return;
     }
   } else {
@@ -536,17 +539,19 @@ function tryShoot() {
     if (a) {
       p.grap = { x: a.x, y: a.y, phase: 'fly', t: 0, time: 0, best: Infinity, stall: 0, ledge: !!a.ledge }; p.rope = null;
       p.face = a.x >= p.x ? 1 : -1;
-      burst(a.x, a.y, 6, '#f2b84b', 110);
+      burst(a.x, a.y, 6, '#f2b84b', 110); SFX.grapFire();
       return;
     }
   }
   p.miss = { a: angs[0], t: 0.2, len: HEROES[hero].range * 0.6 };
+  SFX.miss();
 }
 function releaseRope(boost) {
   if (!p.rope) return;
   const age = p.rope.age;
   p.rope = null;
   if (boost && age > 0.3) { p.vy -= 160; p.vx *= 1.06; } // el impulso solo cuenta tras un balanceo real
+  if (age > 0.12) SFX.release();
 }
 
 /* ---------- Relevo entre héroes ---------- */
@@ -561,6 +566,7 @@ function doSwap() {
     p.vy = Math.min(p.vy, 0) - 260; p.vx += p.face * 140; p.swapCd = 1.2;
     label += ' +IMPULSO';
   }
+  SFX.swap(label.endsWith('+IMPULSO'));
   burst(fromX, fromY, 10, HEROES[other(hero)].ui, 160);
   burst(p.x, p.y, 14, HEROES[hero].ui, 220);
   texts.push({ x: p.x, y: p.y - 46, s: label, t: 1.1, c: HEROES[hero].ui });
@@ -623,13 +629,15 @@ function knock(t, how) {
     label = (team ? 'EN EQUIPO ' : '') + (p.combo > 1 ? 'x' + p.combo + ' ' : '') + '+' + pts;
   }
   score += pts;
+  SFX.hit(t.x, t.y, how === 'rush' || how === 'stomp');
+  if (how !== 'assist' && p.swapT > 0) SFX.team();
   burst(t.x, t.y - 20, 18, how === 'assist' ? '#5fd3c6' : '#f2b84b', 320);
   texts.push({ x: t.x, y: t.y - 50, s: label, t: 1.2, c: how === 'assist' ? '#5fd3c6' : '#f2b84b' });
   if (how === 'stomp') p.vy = -420;
   if (downCount >= L.thugs.length) endGame('win');
 }
 function doAttack() {
-  p.attack = 0.22; p.atkCd = 0.32;
+  p.attack = 0.22; p.atkCd = 0.32; SFX.swing();
   for (const t of L.thugs) {
     if (t.state !== 'walk') continue;
     const dx = t.x - p.x, dy = (t.y - 18) - p.y;
@@ -645,7 +653,7 @@ function thugContacts() {
     if (p.attack > 0 || sp > 480) knock(t, 'rush');
     else if (p.vy > 150 && p.y < ty - 14) knock(t, 'stomp');
     else if (p.inv <= 0) {
-      p.hp -= 15; p.inv = 1.1;
+      p.hp -= 15; p.inv = 1.1; SFX.hurt();
       p.vx = Math.sign(p.x - tx || 1) * 420; p.vy = -320;
       releaseRope(false); p.grap = null;
       burst(p.x, p.y, 10, '#e03445', 220);
@@ -672,7 +680,7 @@ function step(h, list) {
   if (p.grap) {
     const g = p.grap;
     g.time += h;
-    if (g.phase === 'fly') { g.t += h; if (g.t > 0.07) g.phase = 'pull'; p.vy += GRAV * h * 0.3; }
+    if (g.phase === 'fly') { g.t += h; if (g.t > 0.07) { g.phase = 'pull'; SFX.clank(); reel(true); } p.vy += GRAV * h * 0.3; }
     else {
       const dx = g.x - p.x, dy = g.y - p.y, d = Math.hypot(dx, dy);
       if (d < g.best - 0.5) { g.best = d; g.stall = 0; } else g.stall += h;
@@ -735,24 +743,27 @@ function step(h, list) {
 function update(dt) {
   readInput();
   if (pressed('pause')) { setState('pause'); return; }
+  if (pressed('mute')) toggleSound();
   time += dt;
 
   if (pressed('swap')) doSwap();
   if (pressed('jump')) {
-    if (p.rope) { const swung = p.rope.age > 0.2; releaseRope(false); if (swung) p.vy = Math.min(p.vy - 300, -320); }
+    if (p.rope) { const swung = p.rope.age > 0.2; releaseRope(false); if (swung) { p.vy = Math.min(p.vy - 300, -320); SFX.jump(); } }
     else if (!p.grap) {
-      if (p.onGround || p.coyote > 0) { p.vy = -HEROES[hero].jump; p.coyote = 0; p.onGround = false; p.climbT = 0; }
-      else if (hero === 'hilo' && p.wall) { p.vx = -p.wall * 560; p.vy = -640; p.face = -p.wall; p.climbT = 0; }
+      if (p.onGround || p.coyote > 0) { p.vy = -HEROES[hero].jump; p.coyote = 0; p.onGround = false; p.climbT = 0; SFX.jump(); }
+      else if (hero === 'hilo' && p.wall) { p.vx = -p.wall * 560; p.vy = -640; p.face = -p.wall; p.climbT = 0; SFX.jump(); }
     }
   }
   if (pressed('shoot') && (hero === 'hilo' || !p.grap)) tryShoot();
   if (hero === 'hilo' && p.rope && !held.shoot && !taps.has('shoot')) releaseRope(true);
   if (pressed('attack') && p.atkCd <= 0) doAttack();
 
-  const list = near(p.x);
+  const list = near(p.x), wasGround = p.onGround, vy0 = p.vy;
   let rem = dt;
   while (rem > 1e-6) { const h = Math.min(1 / 120, rem); step(h, list); rem -= h; }
   if (p.rope) p.rope.age += dt;
+  if (!p.grap) reel(false);
+  if (p.onGround && !wasGround && vy0 > 250) SFX.land(clamp(vy0 / 1200, 0.25, 1));
 
   p.attack = Math.max(0, p.attack - dt);
   p.atkCd = Math.max(0, p.atkCd - dt);
@@ -767,6 +778,10 @@ function update(dt) {
   updateMate(dt);
   animateRig(p.rig, p, hero, dt);
   animateRig(mateRig, mate, other(hero), dt);
+  if (p.onGround && Math.abs(p.vx) > 40) { // un paso cada media zancada
+    const n = Math.floor(p.rig.phase / Math.PI);
+    if (n !== AU.lastStep) { AU.lastStep = n; SFX.step(clamp(Math.abs(p.vx) / 340, 0.3, 1)); }
+  }
   mateCd = Math.max(0, mateCd - dt);
   mateAtk = Math.max(0, mateAtk - dt);
 
@@ -777,7 +792,7 @@ function update(dt) {
   for (const o of L.orbs) {
     if (o.taken) continue;
     if (Math.hypot(o.x - p.x, o.y - p.y) < 32) {
-      o.taken = true; score += 25; nightLeft = Math.min(NIGHT, nightLeft + 2);
+      o.taken = true; score += 25; nightLeft = Math.min(NIGHT, nightLeft + 2); SFX.pickup();
       burst(o.x, o.y, 12, '#5fd3c6', 200);
       texts.push({ x: o.x, y: o.y - 24, s: '+25  +2 s', t: 0.9, c: '#5fd3c6' });
     }
@@ -800,6 +815,7 @@ function update(dt) {
     if (nightLeft <= 0) { nightLeft = 0; endGame('time'); }
   }
   hintT -= dt;
+  audioFrame(dt);
   hudTimer -= dt;
   if (hudTimer <= 0) { updateHud(); hudTimer = 0.1; }
 }
@@ -830,6 +846,7 @@ function endGame(why) {
   let bonus = 0;
   if (why === 'win') { bonus = Math.round(nightLeft) * 10; score += bonus; }
   setState('end');
+  SFX.stinger(why === 'win');
   const titles = { win: 'Ciudad limpia', time: 'Ha amanecido', hp: 'Fuera de combate' };
   const eyebrows = { win: 'Patrulla completada', time: 'Se acabó la noche', hp: 'Patrulla interrumpida' };
   $('endTitle').textContent = titles[why];
@@ -1712,7 +1729,7 @@ function updateThug(t, dt) {
     const floor = surfaceBelow(r.x, r.y - 20) - 4;
     if (r.y >= floor) {
       r.y = floor;
-      if (Math.abs(r.vy) < 160) { r.vy = 0; r.rest = true; r.target = (r.vr >= 0 ? 1 : -1) * Math.PI / 2; }
+      if (Math.abs(r.vy) < 160) { r.vy = 0; r.rest = true; r.target = (r.vr >= 0 ? 1 : -1) * Math.PI / 2; SFX.fall(r.x, r.y); }
       else { r.vy *= -0.32; r.vx *= 0.55; r.vr *= 0.5; burst(r.x, r.y + 4, 4, '#8b93ad', 90); }
     }
   } else r.rot += wrapA(r.target - r.rot) * (1 - Math.exp(-10 * dt));
@@ -1851,9 +1868,197 @@ function drawOverlay() {
       }
     }
   }
+  if (flashT > 0 && !reduced) { // destello del relámpago
+    const fa = flashT > 0.27 ? 0.32 : flashT > 0.2 ? 0.04 : flashT * 1.1;
+    ctx.fillStyle = `rgba(205,215,255,${fa.toFixed(3)})`; ctx.fillRect(0, 0, viewW, viewH);
+  }
   const v = ctx.createRadialGradient(viewW / 2, viewH / 2, Math.min(viewW, viewH) * 0.35, viewW / 2, viewH / 2, Math.max(viewW, viewH) * 0.75);
   v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.45)');
   ctx.fillStyle = v; ctx.fillRect(0, 0, viewW, viewH);
+}
+
+/* ---------- Sonido: todo sintetizado con Web Audio, sin archivos ---------- */
+const AU = { ctx: null, out: null, sfx: null, amb: null, mus: null, arp: null, noise: null, brown: null, wind: null, drone: null, reel: null,
+             on: true, intensity: 0.2, nextNote: 0, step: 0, lastStep: 0 };
+try { AU.on = localStorage.getItem('cc-sound') !== '0'; } catch (e) { /* sin almacenamiento: sonido activado */ }
+let flashT = 0, thunderIn = 12;
+
+function audioStart() {
+  try {
+    if (!AU.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const a = AU.ctx = new AC();
+      const comp = a.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 4;
+      AU.out = a.createGain(); AU.out.gain.value = AU.on ? 0.9 : 0;
+      AU.out.connect(comp); comp.connect(a.destination);
+      const bus = v => { const g = a.createGain(); g.gain.value = v; g.connect(AU.out); return g; };
+      AU.sfx = bus(0.9); AU.amb = bus(0.55); AU.mus = bus(0.42);
+      AU.noise = noiseBuffer(false); AU.brown = noiseBuffer(true);
+      startAmbience(); startMusic();
+    }
+    if (AU.ctx.state === 'suspended') AU.ctx.resume();
+  } catch (e) { AU.ctx = null; }
+}
+function noiseBuffer(brown) {
+  const a = AU.ctx, len = a.sampleRate * 2, buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
+  }
+  return buf;
+}
+function route(node, pan, bus) {
+  if (AU.ctx.createStereoPanner && pan) { const pn = AU.ctx.createStereoPanner(); pn.pan.value = pan; node.connect(pn); pn.connect(bus); }
+  else node.connect(bus);
+}
+// Ráfaga de ruido filtrado con envolvente (golpes, viento, lluvia, telaraña).
+function noiseHit({ t = 0, dur = 0.1, type = 'bandpass', f = 1000, f2 = 0, q = 1, vol = 0.3, pan = 0, brown = false, attack = 0.005, bus = AU.sfx }) {
+  const a = AU.ctx; if (!a || vol <= 0.0005) return;
+  const t0 = a.currentTime + t, src = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain();
+  src.buffer = brown ? AU.brown : AU.noise; src.loop = true;
+  fl.type = type; fl.frequency.setValueAtTime(f, t0); fl.Q.value = q;
+  if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + attack); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(fl); fl.connect(g); route(g, pan, bus);
+  src.start(t0, Math.random() * 1.5); src.stop(t0 + dur + 0.05);
+}
+// Tono con caída de frecuencia opcional (impactos graves, campanillas, notas).
+function tone({ t = 0, dur = 0.2, type = 'sine', f = 440, f2 = 0, vol = 0.2, pan = 0, attack = 0.005, bus = AU.sfx }) {
+  const a = AU.ctx; if (!a || vol <= 0.0005) return;
+  const t0 = a.currentTime + t, o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t0);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + attack); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); route(g, pan, bus);
+  o.start(t0); o.stop(t0 + dur + 0.05);
+}
+function near3d(x, y) { // paneo y atenuación según dónde suena respecto al jugador
+  return { pan: clamp((x - p.x) / 500, -0.85, 0.85), k: clamp(1 - Math.hypot(x - p.x, y - p.y) / 1100, 0, 1) };
+}
+
+const SFX = {
+  web()      { noiseHit({ dur: 0.13, f: 3200, f2: 700, q: 2.5, vol: 0.32 }); tone({ dur: 0.1, type: 'triangle', f: 1100, f2: 320, vol: 0.06 }); },
+  release()  { noiseHit({ dur: 0.07, type: 'highpass', f: 2500, vol: 0.08 }); },
+  miss()     { noiseHit({ dur: 0.09, f: 1800, f2: 900, q: 1.5, vol: 0.1 }); },
+  grapFire() { tone({ dur: 0.05, type: 'square', f: 260, f2: 120, vol: 0.1 }); noiseHit({ dur: 0.18, f: 2200, f2: 1200, q: 3, vol: 0.18 }); },
+  clank()    { tone({ dur: 0.18, type: 'square', f: 1240, vol: 0.04 }); tone({ dur: 0.22, type: 'square', f: 1710, vol: 0.03 }); noiseHit({ dur: 0.05, type: 'highpass', f: 3000, vol: 0.15 }); },
+  jump()     { noiseHit({ dur: 0.12, f: 700, f2: 1400, q: 0.8, vol: 0.07 }); },
+  step(v)    { noiseHit({ dur: 0.05, type: 'lowpass', f: 700, vol: 0.12 * v, brown: true }); noiseHit({ dur: 0.04, type: 'highpass', f: 5000, vol: 0.03 * v }); },
+  land(v)    { tone({ dur: 0.16, f: 95, f2: 45, vol: 0.3 * v }); noiseHit({ dur: 0.14, type: 'lowpass', f: 900, vol: 0.22 * v, brown: true }); noiseHit({ dur: 0.1, type: 'highpass', f: 4000, vol: 0.05 * v }); },
+  swing()    { noiseHit({ dur: 0.12, f: 600, f2: 1600, q: 1.2, vol: 0.07 }); },
+  hit(x, y, strong) {
+    const s = near3d(x, y);
+    noiseHit({ dur: 0.09, type: 'lowpass', f: 1600, vol: (strong ? 0.45 : 0.32) * s.k, pan: s.pan });
+    tone({ dur: 0.12, f: 150, f2: 55, vol: 0.32 * s.k, pan: s.pan });
+  },
+  fall(x, y) { const s = near3d(x, y); tone({ dur: 0.2, f: 80, f2: 40, vol: 0.25 * s.k, pan: s.pan }); noiseHit({ dur: 0.25, type: 'lowpass', f: 500, vol: 0.18 * s.k, pan: s.pan, brown: true }); },
+  hurt()     { tone({ dur: 0.18, f: 120, f2: 60, vol: 0.3 }); tone({ dur: 0.25, type: 'sawtooth', f: 233, f2: 220, vol: 0.035 }); noiseHit({ dur: 0.1, type: 'lowpass', f: 1200, vol: 0.25 }); },
+  pickup()   { tone({ dur: 0.35, f: 988, vol: 0.07 }); tone({ t: 0.06, dur: 0.4, f: 1480, vol: 0.05 }); tone({ t: 0.12, dur: 0.5, f: 1976, vol: 0.03 }); },
+  swap(boost) { noiseHit({ dur: 0.22, f: 500, f2: 2600, q: 1, vol: 0.12 }); if (boost) tone({ dur: 0.25, type: 'triangle', f: 330, f2: 990, vol: 0.06 }); },
+  team()     { tone({ dur: 0.3, type: 'triangle', f: 587, vol: 0.06 }); tone({ t: 0.08, dur: 0.35, type: 'triangle', f: 880, vol: 0.05 }); },
+  stinger(win) {
+    const notes = win ? [293.7, 370, 440, 587.3] : [293.7, 277.2, 261.6, 220];
+    notes.forEach((f, i) => tone({ t: i * 0.16, dur: 0.7, type: 'triangle', f, vol: 0.09 }));
+  }
+};
+function reel(on) { // cable del gancho recogiéndose
+  const a = AU.ctx; if (!a) return;
+  if (on && !AU.reel) {
+    const o = a.createOscillator(), f = a.createBiquadFilter(), g = a.createGain(), t = a.currentTime;
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(140, t); o.frequency.linearRampToValueAtTime(420, t + 0.5);
+    f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 2;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.04, t + 0.03);
+    o.connect(f); f.connect(g); g.connect(AU.sfx); o.start();
+    AU.reel = { o, g };
+  } else if (!on && AU.reel) {
+    const t = a.currentTime;
+    AU.reel.g.gain.cancelScheduledValues(t); AU.reel.g.gain.setTargetAtTime(0.0001, t, 0.03); AU.reel.o.stop(t + 0.2);
+    AU.reel = null;
+  }
+}
+
+function loopNoise(brown, type, f, q, vol, bus) {
+  const a = AU.ctx, src = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain();
+  src.buffer = brown ? AU.brown : AU.noise; src.loop = true;
+  fl.type = type; fl.frequency.value = f; fl.Q.value = q; g.gain.value = vol;
+  src.connect(fl); fl.connect(g); g.connect(bus); src.start();
+  return { fl, g };
+}
+function startAmbience() {
+  loopNoise(false, 'highpass', 2600, 0.5, 0.1, AU.amb);              // siseo de la lluvia
+  const body = loopNoise(true, 'lowpass', 1100, 0.5, 0.22, AU.amb);  // lluvia sobre tejados y toldos
+  loopNoise(true, 'lowpass', 160, 0.7, 0.35, AU.amb);                // rumor del tráfico lejano
+  const lfo = AU.ctx.createOscillator(), lg = AU.ctx.createGain();   // ráfagas de lluvia
+  lfo.frequency.value = 0.07; lg.gain.value = 0.08; lfo.connect(lg); lg.connect(body.g.gain); lfo.start();
+  AU.wind = loopNoise(false, 'bandpass', 600, 0.9, 0.0001, AU.sfx);  // viento al moverse rápido
+}
+
+// Relámpago: destello inmediato y trueno con retraso, como en una tormenta real.
+function lightning() {
+  flashT = 0.35;
+  if (!AU.ctx) return;
+  const d = 0.4 + Math.random() * 1.6;
+  noiseHit({ t: d, dur: 0.35, type: 'lowpass', f: 2400, vol: 0.22, bus: AU.amb });
+  noiseHit({ t: d + 0.05, dur: 3.8, type: 'lowpass', f: 220, f2: 70, vol: 0.9, brown: true, attack: 0.15, bus: AU.amb });
+}
+
+// Música: re menor (Rem, Sib, Solm, La) a 96 ppm; arpegio y percusión entran con la tensión.
+const PROG = [[146.8, 174.6, 220], [116.5, 146.8, 174.6], [98, 116.5, 146.8], [110, 138.6, 164.8]];
+const BASS = [73.4, 58.3, 49, 55];
+function startMusic() {
+  const a = AU.ctx, f = a.createBiquadFilter(), g = a.createGain();
+  f.type = 'lowpass'; f.frequency.value = 320; f.Q.value = 3; g.gain.value = 0.05;
+  for (const [fr, det] of [[73.4, -6], [110, 5], [146.8, 0]]) { const o = a.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fr; o.detune.value = det; o.connect(f); o.start(); }
+  f.connect(g); g.connect(AU.mus); AU.drone = f;
+  const dl = a.createDelay(1), fb = a.createGain(), wet = a.createGain();
+  dl.delayTime.value = 0.47; fb.gain.value = 0.32; wet.gain.value = 0.35;
+  dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(AU.mus);
+  AU.arp = a.createGain(); AU.arp.connect(AU.mus); AU.arp.connect(dl);
+  AU.nextNote = a.currentTime + 0.1; AU.step = 0;
+  setInterval(scheduleMusic, 25);
+}
+function scheduleMusic() {
+  const a = AU.ctx; if (!a || a.state !== 'running') return;
+  while (AU.nextNote < a.currentTime + 0.12) { musicStep(AU.step, AU.nextNote - a.currentTime); AU.nextNote += 60 / 96 / 4; AU.step = (AU.step + 1) % 64; }
+  AU.drone.frequency.setTargetAtTime(280 + AU.intensity * 900, a.currentTime, 0.5);
+}
+function musicStep(st, at) {
+  const I = AU.intensity, bar = Math.floor(st / 16), s = st % 16, chord = PROG[bar], b = BASS[bar], M = AU.mus;
+  if (s % 2 === 0) { tone({ t: at, dur: 0.22, type: 'triangle', f: b, vol: 0.09 + 0.06 * I, bus: M }); tone({ t: at, dur: 0.18, type: 'triangle', f: b * 2, vol: 0.03 + 0.03 * I, bus: M }); }
+  if (I > 0.35 && (s % 4 === 2 || Math.random() < I - 0.35)) tone({ t: at, dur: 0.25, type: 'triangle', f: chord[(s >> 1) % 3] * 2, vol: 0.035 * I, bus: AU.arp });
+  if (I > 0.45) {
+    if (s === 0 || s === 8 || (I > 0.8 && s === 11)) tone({ t: at, dur: 0.28, f: 120, f2: 42, vol: 0.22 * I, bus: M });
+    if (s % 4 === 2) noiseHit({ t: at, dur: 0.035, type: 'highpass', f: 7000, vol: 0.05 * I, bus: M });
+    if (I > 0.75 && (s === 4 || s === 12)) { noiseHit({ t: at, dur: 0.14, f: 1800, q: 0.8, vol: 0.12 * I, bus: M }); tone({ t: at, dur: 0.1, type: 'triangle', f: 190, f2: 150, vol: 0.06 * I, bus: M }); }
+  }
+}
+
+// Cada fotograma: viento según la velocidad y tensión de la música según los matones cercanos.
+function audioFrame(dt) {
+  const a = AU.ctx; if (!a || state !== 'play') return;
+  const v = Math.hypot(p.vx, p.vy), lvl = p.onGround ? 0 : clamp((v - 250) / 1100, 0, 1) * 0.22 + (p.gliding ? 0.05 : 0);
+  AU.wind.g.gain.setTargetAtTime(lvl + 0.0001, a.currentTime, 0.12);
+  AU.wind.fl.frequency.setTargetAtTime(400 + v * 0.9, a.currentTime, 0.12);
+  let threat = 0.2;
+  for (const t of L.thugs) {
+    if (t.state !== 'walk') continue;
+    if (t.alert) { threat = 1; break; }
+    if (Math.abs(t.x - p.x) + Math.abs(t.y - p.y) * 0.5 < 500) threat = 0.6;
+  }
+  AU.intensity += (threat - AU.intensity) * Math.min(1, dt * 0.8);
+}
+function audioState(s) {
+  const a = AU.ctx; if (!a) return;
+  if (s === 'pause') a.suspend(); else if (a.state === 'suspended') a.resume();
+  AU.mus.gain.setTargetAtTime(s === 'play' ? 0.42 : 0.12, a.currentTime, 0.4);
+  if (s !== 'play') { AU.wind.g.gain.setTargetAtTime(0.0001, a.currentTime, 0.1); reel(false); }
+}
+function toggleSound() {
+  AU.on = !AU.on;
+  try { localStorage.setItem('cc-sound', AU.on ? '1' : '0'); } catch (e) { /* preferencia solo para esta visita */ }
+  if (AU.ctx) AU.out.gain.setTargetAtTime(AU.on ? 0.9 : 0, AU.ctx.currentTime, 0.05);
+  $('soundBtn').textContent = 'SONIDO: ' + (AU.on ? 'SÍ' : 'NO');
 }
 
 /* ---------- Bucle principal ---------- */
@@ -1861,6 +2066,8 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(1 / 30, Math.max(0, (now - last) / 1000)); last = now;
   clock += dt;
+  flashT = Math.max(0, flashT - dt);
+  if (state === 'play') { thunderIn -= dt; if (thunderIn <= 0) { thunderIn = 18 + Math.random() * 30; lightning(); } }
   if (state === 'play') update(dt);
   else {
     readInput();
@@ -1877,6 +2084,8 @@ $('startBtn').addEventListener('click', startGame);
 $('againBtn').addEventListener('click', startGame);
 $('menuBtn').addEventListener('click', () => setState('menu'));
 $('pauseBtn').addEventListener('click', () => setState('pause'));
+$('soundBtn').addEventListener('click', e => { audioStart(); toggleSound(); e.currentTarget.blur(); });
+$('soundBtn').textContent = 'SONIDO: ' + (AU.on ? 'SÍ' : 'NO');
 $('resumeBtn').addEventListener('click', () => setState('play'));
 $('quitBtn').addEventListener('click', () => setState('menu'));
 

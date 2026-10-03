@@ -8,7 +8,7 @@ Juego de navegador (HTML5 Canvas + JavaScript, sin dependencias) en el que dos h
 
 Para jugar, abre `index.html` en cualquier navegador. En el móvil aparecen mandos táctiles.
 
-Controles: `A`/`D` moverse · `Espacio` saltar/planear · `J` o clic telaraña/gancho · `W`/`S` recoger cuerda o trepar · `K` golpe · `Q` relevo · `P` pausa.
+Controles: `A`/`D` moverse · `Espacio` saltar/planear · `J` o clic telaraña/gancho · `W`/`S` recoger cuerda o trepar · `K` golpe · `Q` relevo · `P` pausa · `M` sonido.
 
 ## Gráficos y animación
 
@@ -16,3 +16,7 @@ Controles: `A`/`D` moverse · `Espacio` saltar/planear · `J` o clic telaraña/g
 - **Figuras**: esqueleto de 10 articulaciones con miembros con volumen, luz de luna y sombra en el suelo. Animación procedural: marcha y carrera según la zancada, respiración en reposo, flexión al aterrizar, balanceo colgado de la mano, trepar alternando manos y pies, planeo, voltereta y puñetazo con carga.
 - **Capa** de Vigía con física de tela (Verlet) que ondea con la velocidad.
 - **Matones** que patrullan, se paran a mirar, se ponen en guardia al verte y caen con física al recibir un golpe.
+
+## Sonido
+
+Todo sintetizado con Web Audio, sin archivos: lluvia, tráfico lejano, relámpagos con trueno retrasado, viento según la velocidad, telaraña, gancho, pasos, aterrizajes, golpes y caídas con paneo estéreo, y música en re menor cuya intensidad sube cuando hay matones cerca. Se silencia con `M` o con el botón SONIDO.
