@@ -144,54 +144,67 @@ export function construirMensajes(opts: {
   contacto: string;
   firma: Firma;
 }): Mensajes {
-  const { lead, frase, frase2, tratamiento: trat, tratamientoPropio, contacto, firma } = opts;
+  const { lead, frase, tratamiento: trat, tratamientoPropio, contacto, firma } = opts;
+  const frase2 = opts.frase2 && opts.frase2.trim() !== frase.trim() ? opts.frase2.trim() : '';
   const nom = lead.nombre;
   const quien = persona(lead.nicho);
-  const m = momento(lead.ficha);
   const saludo = contacto ? `Hola ${contacto}` : 'Hola';
   const positivo = lineaPositiva(lead);
   const otros = (lead.ficha?.tratamientos || []).filter((t) => t !== trat).slice(0, 2);
   const tratsLista = unir([trat, ...otros]);
   const firmaEmail = `${firma.nombre}\n${firma.agencia}${firma.telefono ? `\nTel.: ${firma.telefono}` : ''}${firma.email ? `\nEmail: ${firma.email}` : ''}`;
 
+  // Oferta: revisión gratuita de 15 min (diagnóstico primero, automatización después).
+  // Nunca "monto agentes que contestan solos" ni cifras de resultados.
+  const juntas = quien === 'una clienta' ? 'juntas' : 'juntos';
+  const fallos = [frase, frase2].filter((x) => x && x.trim()).map((x) => `– ${mayus(x.trim().replace(/\.$/, ''))}.`).join('\n');
+  const revision = `Hago una revisión de 15 minutos, sin coste, para enseñaros dónde se pierden consultas y qué se puede automatizar, por ejemplo contestar y dar cita a quien escribe fuera de horario.`;
+  const pregunta = `¿Te interesa que lo revisemos ${juntas} y veamos qué se puede mejorar?`;
+
   const email = `Asunto: ${tratamientoPropio ? `${mayus(trat)} en ${nom}` : `Citas fuera de horario en ${nom}`}
 
 ${contacto ? `Hola ${contacto}` : `Hola, equipo de ${nom}`}:
 
-Soy ${firma.nombre}, de ${firma.agencia}.${positivo ? ' ' + positivo : ''}
+Soy ${firma.nombre}, de ${firma.agencia}, una agencia de automatización de Sevilla.${positivo ? ' ' + positivo : ''}
 
-He estado mirando vuestra web: ${frase}.
+He estado mirando vuestra web y he visto un par de cosas que os pueden estar costando citas:
+${fallos}
 
-Lo que hago es montar un agente de inteligencia artificial en vuestro WhatsApp que contesta al momento las dudas sobre ${tratsLista} (precio, sesiones, preparación) y deja la cita en vuestra agenda. Lo que necesite a una persona lo pasa a vuestro equipo.
+${revision}
 
-¿Os mando un vídeo de 1 minuto con cómo respondería a ${quien} que pregunta por ${trat} ${m}? Si no os encaja, decídmelo y no insisto.
+${pregunta} Si no os encaja, decídmelo y no insisto.
 
 Un saludo,
 ${firmaEmail}`;
 
-  const dm = `${saludo}, soy ${firma.nombre}. He estado mirando la web de ${nom}: ${frase}. Monto agentes de IA que contestan y agendan solos. ¿Te mando un vídeo de 1 minuto con cómo respondería a ${quien} que pregunta por ${trat}?`;
+  const dm = `${contacto ? `Hola, ${contacto}` : "Hola"}. Soy ${firma.nombre}, tengo una agencia de automatización aquí en Sevilla. He estado mirando la web de ${nom} y he visto un par de cosas que os pueden estar costando citas:
+${fallos}
+${revision} ${pregunta}`;
 
   const llamada = `Guion de llamada: ${nom}
 
-1. Saludo: "Hola, ¿hablo con ${contacto || nom}? Soy ${firma.nombre}, de ${firma.agencia}. ¿Tienes un minuto?"
+1. Saludo: "Hola, ¿hablo con ${contacto || nom}? Soy ${firma.nombre}, de ${firma.agencia}, una agencia de automatización de Sevilla. ¿Tienes un minuto?"
 2. Motivo (su web): "He estado mirando vuestra web y ${frase}."
 3. Pregunta: "¿Cómo lo estáis llevando ahora? ¿Quién contesta lo que entra por la noche o el fin de semana?"
-4. Qué hago: "Monto un agente de inteligencia artificial en vuestro WhatsApp que responde las dudas sobre ${tratsLista} y deja la cita en la agenda. Lo que necesita a una persona os lo pasa."
-5. Cierre: "¿Te mando un vídeo de 1 minuto con cómo respondería a ${quien} que pregunta por ${trat}? Así lo ves con calma."`;
+4. Qué hago: "Reviso cómo os llegan las consultas (web, WhatsApp, Instagram), dónde se pierden y qué tareas se pueden automatizar, como contestar las dudas sobre ${tratsLista} y dar cita fuera de horario. Lo que necesita a una persona lo sigue llevando vuestro equipo."
+5. Cierre: "Son 15 minutos, sin coste. ¿Te viene mejor el martes o el jueves por la mañana?"`;
 
-  const seguimiento1 = `${saludo}, te escribí hace unos días sobre ${nom}. Un dato más: ${frase2}. ¿Te enseño en un minuto cómo lo resolvería el agente?`;
+  const seguimiento1 = frase2
+    ? `${saludo}, te escribí hace unos días sobre la web de ${nom}. Te dejo otro dato por si te sirve: ${frase2}. Si queréis, lo vemos en 15 minutos.`
+    : `${saludo}, te escribí hace unos días sobre la web de ${nom}. Si queréis, en 15 minutos os enseño lo que he visto y qué se puede mejorar. ¿Te viene bien esta semana?`;
 
-  const seguimiento2 = `${saludo}, te dejo el vídeo de cómo respondería el agente a ${quien} que pregunta por ${trat} en ${nom}: [ENLACE AL VÍDEO]. No te escribo más; si algún día queréis verlo en directo, aquí estoy.`;
+  const seguimiento2 = `${saludo}, no te escribo más sobre ${nom}. Si en algún momento queréis revisar cómo os llegan las consultas y qué se puede automatizar, me escribís y lo vemos. Gracias por tu tiempo.`;
 
-  const vozInicial = `Hola ${contacto || nom}, soy ${firma.nombre} de ${firma.agencia} [pausa] He estado mirando vuestra web y ${frase} [pausa corta] Monto un agente de inteligencia artificial en vuestro WhatsApp que responde y agenda solo [respiración] ¿Te mando un vídeo de un minuto con cómo respondería a ${quien} que pregunta por ${trat}?`;
-  const vozSeguimiento = `Hola ${contacto ? contacto + ', ' : ''}soy ${firma.nombre} de ${firma.agencia} [pausa] Te escribo por lo de ${nom} [respiración] ${mayus(frase2)} [pausa corta] He preparado un ejemplo de cómo el agente respondería a ${quien} que pregunta por ${trat} [pausa] ¿Quieres que te lo envíe?`;
-  const vozCierre = `Hola ${contacto ? contacto + ', ' : ''}soy ${firma.nombre} de ${firma.agencia} [pausa] Solo quería cerrar el tema de ${nom} [respiración] Si algún día queréis ver cómo contestaría el agente a las consultas de ${trat}, me escribís y lo vemos [pausa corta] Si no os encaja, lo dejamos aquí. Gracias por tu tiempo.`;
+  const vozInicial = `Hola ${contacto || nom}, soy ${firma.nombre} de ${firma.agencia}, una agencia de automatización de Sevilla [pausa] He estado mirando vuestra web y ${frase} [pausa corta] Hago una revisión de quince minutos, sin coste, para ver dónde se pierden consultas y qué se puede automatizar, como dar cita fuera de horario [respiración] ¿Te interesa que lo revisemos ${juntas}?`;
+  const vozSeguimiento = `Hola ${contacto ? contacto + ', ' : ''}soy ${firma.nombre} de ${firma.agencia} [pausa] Te escribo por lo de ${nom} [respiración] ${frase2 ? mayus(frase2) + ' [pausa corta] ' : ''}Si queréis, lo vemos en quince minutos y os enseño qué se puede mejorar [pausa] ¿Te viene bien esta semana?`;
+  const vozCierre = `Hola ${contacto ? contacto + ', ' : ''}soy ${firma.nombre} de ${firma.agencia} [pausa] Solo quería cerrar el tema de ${nom} [respiración] Si algún día queréis revisar cómo os llegan las consultas sobre ${trat}, me escribís y lo vemos [pausa corta] Si no os encaja, lo dejamos aquí. Gracias por tu tiempo.`;
 
   const calidad = [
     { ok: true, texto: `Nombre del negocio: ${nom}` },
     { ok: tratamientoPropio, texto: tratamientoPropio ? `Tratamiento suyo: ${trat}` : 'Sin tratamiento suyo: escribe uno que ofrezcan en su web' },
     { ok: !/me gustaría saber qué pasa con las consultas|\[/.test(frase), texto: /\[/.test(frase) ? 'Falta el dato de su web: completa el gancho del paso 2' : 'Dato concreto de su web en el mensaje' },
-    { ok: dm.length <= 450, texto: `DM de ${dm.length} caracteres (máx. 450)` },
+    { ok: !!frase2 && !/\[/.test(frase2), texto: frase2 ? 'Segundo fallo de su web en el mensaje' : 'Falta el segundo fallo de su web' },
+    { ok: dm.length <= 800, texto: `DM de ${dm.length} caracteres (máx. 800)` },
   ];
 
   return { email, dm, llamada, seguimiento1, seguimiento2, vozInicial, vozSeguimiento, vozCierre, calidad };

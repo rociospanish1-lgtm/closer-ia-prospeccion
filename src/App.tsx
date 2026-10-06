@@ -94,7 +94,7 @@ const ACTIVACION_CHECKS = [
 export default function App() {
   const [step, setStep] = useState(1);
   const [miNombre, setMiNombre] = useState(() => { try { return localStorage.getItem('closer_nombre') || 'Rocío'; } catch { return 'Rocío'; } });
-  const [miAgencia, setMiAgencia] = useState(() => { try { return localStorage.getItem('closer_agencia') || 'Agencia de Agentes IA'; } catch { return 'Agencia de Agentes IA'; } });
+  const [miAgencia, setMiAgencia] = useState(() => { try { return (()=>{ const v = localStorage.getItem('closer_agencia'); return !v || v === 'Agencia de Agentes IA' ? 'Agencia de automatización' : v; })(); } catch { return 'Agencia de automatización'; } });
   const [miTelefono, setMiTelefono] = useState(() => { try { return localStorage.getItem('closer_telefono') || ''; } catch { return ''; } });
   const [miEmail, setMiEmail] = useState(() => { try { return localStorage.getItem('closer_email') || ''; } catch { return ''; } });
   useEffect(()=>{ try { localStorage.setItem('closer_nombre', miNombre); localStorage.setItem('closer_agencia', miAgencia); localStorage.setItem('closer_telefono', miTelefono); localStorage.setItem('closer_email', miEmail); } catch {} },[miNombre, miAgencia, miTelefono, miEmail]);
@@ -183,7 +183,9 @@ export default function App() {
     const lista = ganchos(selectedLead, analisis.checks, tratamientoMsg);
     const positivo = lineaPositiva(selectedLead);
     setAnalisis(prev=>({...prev, oportunidad: lista[0].frase, angulo: lista[0].id }));
-    setFrase2(lista[1]?.frase || (positivo ? positivo.replace(/\.$/, '').replace(/^T/, 't') : `cada consulta sobre ${tratamientoMsg} que llega fuera de horario es una cita que puede irse a otro sitio`));
+    void positivo;
+    // Segundo fallo: solo si sale de su web. Nunca rellenar con frases genéricas ni con la línea positiva.
+    setFrase2(lista[1]?.concreto ? lista[1].frase : '');
   },[analisis.checks, selectedLead?.id, selectedLead?.ficha, tratamientoMsg]);
 
   // Mensajes personalizados (email, DM, llamada, seguimientos y voz)
@@ -192,7 +194,7 @@ export default function App() {
     return construirMensajes({
       lead: selectedLead,
       frase: analisis.oportunidad || `me gustaría saber qué pasa con las consultas sobre ${tratamientoMsg} que os llegan fuera de horario`,
-      frase2: frase2 || analisis.oportunidad,
+      frase2,
       tratamiento: tratamientoMsg,
       tratamientoPropio: tratamiento.trim() !== '',
       contacto: contacto.trim() || vozNombre.trim(),
@@ -763,6 +765,11 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   <textarea value={analisis.oportunidad} onChange={e=>setAnalisis({...analisis, oportunidad:e.target.value})} className="mt-1 w-full h-24 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00]"/>
                 </div>
 
+                <div className="mt-3">
+                  <label className="text-[11px] text-white/50">SEGUNDO FALLO DE SU WEB (auto + editable; ej.: un enlace que lleva a otra página)</label>
+                  <textarea value={frase2} onChange={e=>setFrase2(e.target.value)} placeholder="Escribe aquí otro fallo concreto que hayas visto en su web" className="mt-1 w-full h-20 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00]"/>
+                </div>
+
                 <button onClick={()=>{ if(selectedLead && analisis.oportunidad){ setStep(3);} }} disabled={!analisis.oportunidad} className="mt-5 w-full bg-[#c6ff00] disabled:opacity-30 text-black font-black py-3 rounded-xl flex items-center justify-center gap-2 text-sm tracking-wide">
                   GUARDAR ANÁLISIS Y PASAR A PROSPECCIÓN <ChevronRight size={16}/>
                 </button>
@@ -840,7 +847,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   <button onClick={()=>copy(seg1Tpl)} className="mt-1 w-full bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 1</button>
                 </div>
                 <div>
-                  <div className="text-[10px] text-white/40 mb-1">A LOS 7 DÍAS · el último: entrega el vídeo</div>
+                  <div className="text-[10px] text-white/40 mb-1">A LOS 7 DÍAS · el último: cierra sin insistir</div>
                   <textarea value={seg2Tpl} onChange={e=>setSeg2Tpl(e.target.value)} className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-[12px] outline-none"/>
                   <button onClick={()=>copy(seg2Tpl)} className="mt-1 w-full bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 2</button>
                 </div>
