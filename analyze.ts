@@ -1,4 +1,59 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import https from "https";
+import http from "http";
+
+const UA_NAVEGADOR =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+
+function hostPermitido(host: string) {
+  return !(
+    !host.includes(".") ||
+    host === "localhost" ||
+    /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/.test(host)
+  );
+}
+
+// Plan B cuando fetch() falla por la conexión segura: muchas webs de negocios pequeños tienen el
+// certificado mal montado o un servidor antiguo. Un navegador las abre igual; Node no. Aquí solo
+// LEEMOS el HTML público (no se envía nada sensible), así que se acepta esa conexión imperfecta.
+function descargaTolerante(url: string, finLimite: number, saltos = 0): Promise<{ status: number; html: string }> {
+  return new Promise((resolve, reject) => {
+    if (saltos > 4) return reject(new Error("demasiadas redirecciones"));
+    const u = new URL(url);
+    if (!hostPermitido(u.hostname)) return reject(new Error("URL no válida"));
+    const restante = finLimite - Date.now();
+    if (restante <= 0) return reject(Object.assign(new Error("timeout"), { name: "AbortError" }));
+    const lib = u.protocol === "http:" ? http : https;
+    const req = lib.get(
+      url,
+      {
+        headers: { "User-Agent": UA_NAVEGADOR, Accept: "text/html,*/*" },
+        timeout: restante,
+        ...(u.protocol === "https:"
+          ? { rejectUnauthorized: false, minVersion: "TLSv1" as const, ciphers: "DEFAULT:@SECLEVEL=0" }
+          : {}),
+      },
+      (res) => {
+        const status = res.statusCode || 0;
+        if (status >= 300 && status < 400 && res.headers.location) {
+          res.resume();
+          return resolve(descargaTolerante(new URL(res.headers.location, url).toString(), finLimite, saltos + 1));
+        }
+        let total = 0;
+        const trozos: Buffer[] = [];
+        res.on("data", (c: Buffer) => {
+          total += c.length;
+          if (total > 3_000_000) { resolve({ status, html: Buffer.concat(trozos).toString("utf8") }); req.destroy(); return; }
+          trozos.push(c);
+        });
+        res.on("end", () => resolve({ status, html: Buffer.concat(trozos).toString("utf8") }));
+        res.on("error", reject);
+      }
+    );
+    req.on("timeout", () => req.destroy(Object.assign(new Error("timeout"), { name: "AbortError" })));
+    req.on("error", reject);
+  });
+}
 
 const COOKIE = "closer_session";
 const MAX_AGE = 60 * 60 * 24 * 30;
@@ -206,35 +261,40 @@ export default async function handler(req: any, res: any) {
   if (!/^https?:\/\//i.test(url)) url = "https://" + url;
 
   try {
-    const parsed = new URL(url);
-    const host = parsed.hostname;
-    if (
-      !host.includes(".") ||
-      host === "localhost" ||
-      /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)
-    ) {
-      return res.status(400).json({ error: "URL no válida" });
-    }
+    if (!hostPermitido(new URL(url).hostname)) return res.status(400).json({ error: "URL no válida" });
   } catch {
     return res.status(400).json({ error: "URL no válida" });
   }
 
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
     const start = Date.now();
-    const response = await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; CloserBot/1.0)" },
-    });
-    clearTimeout(timer);
-    if (!response.ok) {
+    const finLimite = start + 15000;
+    let status = 0;
+    let html = "";
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      const response = await fetch(url, {
+        signal: controller.signal,
+        redirect: "follow",
+        headers: { "User-Agent": UA_NAVEGADOR, Accept: "text/html,*/*" },
+      });
+      clearTimeout(timer);
+      status = response.status;
+      html = await response.text();
+    } catch (e: any) {
+      if (e?.name === "AbortError") throw e;
+      // fetch falla en bloque ("fetch failed") con certificados mal montados o servidores antiguos.
+      console.error("analyze fetch failed:", url, e?.cause?.code || e?.cause?.message || e?.message);
+      const r = await descargaTolerante(url, finLimite);
+      status = r.status;
+      html = r.html;
+    }
+    if (status < 200 || status >= 300) {
       return res.status(502).json({
-        error: `La web respondió ${response.status} (puede bloquear bots). Revísala a mano y marca los checks.`,
+        error: `La web respondió ${status} (puede bloquear bots). Revísala a mano y marca las casillas.`,
       });
     }
-    const html = await response.text();
     const segundos = (Date.now() - start) / 1000;
     const h = html.toLowerCase();
 
@@ -274,7 +334,7 @@ export default async function handler(req: any, res: any) {
       checks,
       seoScore,
       velocidad: `${segundos.toFixed(1)}s`,
-      detalle: { tieneWhatsapp, tieneReservas, tienePixel, tieneSchema, imagenes: imgs, status: response.status },
+      detalle: { tieneWhatsapp, tieneReservas, tienePixel, tieneSchema, imagenes: imgs, status },
       ficha,
     });
   } catch (error: any) {
@@ -282,7 +342,7 @@ export default async function handler(req: any, res: any) {
       error:
         error?.name === "AbortError"
           ? "La web tardó más de 12s en responder (ya es un dato: web lenta)."
-          : "No se pudo abrir la web: " + (error?.message || "error"),
+          : "No se pudo abrir la web ni con el plan B (" + (error?.code || error?.message || "error") + "). Revísala a mano y marca las casillas.",
     });
   }
 }

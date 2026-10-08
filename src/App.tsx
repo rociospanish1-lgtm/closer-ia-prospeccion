@@ -120,8 +120,8 @@ export default function App() {
     observaciones: '',
     checks: [],
     seoScore: 4,
-    velocidad: '4.2s',
-    trafico: '~1.2k / mes',
+    velocidad: '',
+    trafico: '',
     oportunidad: '',
     angulo: ''
   });
@@ -287,6 +287,8 @@ export default function App() {
       }));
     } catch(e: any) {
       setErrorAnalisis(e.message || 'Error de conexión');
+      // No dejar datos de otro lead: casillas y métricas en blanco para revisar a mano.
+      setAnalisis(prev=>({ ...prev, checks: [], seoScore: 4, velocidad: '', trafico: '', observaciones: 'El análisis automático no pudo abrir esta web. Revísala a mano y marca las casillas.' }));
     } finally {
       setAnalizando(false);
     }
@@ -672,7 +674,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                             </td>
                             <td className="p-3">
                               <div className="flex gap-1">
-                                <button onClick={()=>{setSelectedId(l.id); if(l.analisisEstado==='ok'){ setAnalisis(prev=>({...prev, checks: l.huecos || [], seoScore: l.seoScore ?? prev.seoScore, velocidad: l.velocidad ?? prev.velocidad})); } setStep(2);}} className={`px-3 py-1.5 rounded-lg font-bold text-[11px] flex items-center gap-1 ${selectedId===l.id ? 'bg-[#c6ff00] text-black' : 'bg-white text-black hover:bg-white/90'}`}><Eye size={12}/> SEL</button>
+                                <button onClick={()=>{setSelectedId(l.id); setErrorAnalisis(''); if(l.analisisEstado==='ok'){ setAnalisis(prev=>({...prev, checks: l.huecos || [], seoScore: l.seoScore ?? 4, velocidad: l.velocidad ?? '', trafico: '', observaciones: ''})); } else { setAnalisis(prev=>({...prev, checks: [], seoScore: 4, velocidad: '', trafico: '', observaciones: l.analisisError ? 'El análisis automático no pudo abrir esta web. Revísala a mano y marca las casillas.' : ''})); } setStep(2);}} className={`px-3 py-1.5 rounded-lg font-bold text-[11px] flex items-center gap-1 ${selectedId===l.id ? 'bg-[#c6ff00] text-black' : 'bg-white text-black hover:bg-white/90'}`}><Eye size={12}/> SEL</button>
                                 <button onClick={()=>setLeads(prev=>prev.filter(x=>x.id!==l.id))} className="p-1.5 rounded bg-white/10 hover:bg-red-500/20"><Trash2 size={12}/></button>
                               </div>
                             </td>
