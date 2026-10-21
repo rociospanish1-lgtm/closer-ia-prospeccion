@@ -5,7 +5,8 @@ import {
   ChevronRight, Building2, FileText, Mic, Send, CheckCircle2, Ban, Eye, Settings,
   User, Sparkles, Flame
 } from 'lucide-react';
-import { Ficha, ganchos, construirMensajes, lineaPositiva, tratamientoPorDefecto } from './personalizacion';
+import { Ficha, Canal, ganchos, construirMensajes, tratamientoPorDefecto, DM_MAX } from './personalizacion';
+import { IgFicha, analizarInstagram, crudoDesdeTexto, normalizarUsuario, resumenIg } from './instagram';
 
 // Planes de la agencia (rociopinedaia.es). Precios sin IVA.
 const PLANES = [
@@ -57,6 +58,8 @@ interface Lead {
   ultimoContacto?: string;
   seguimientos?: number;
   ficha?: Ficha;
+  instagram?: string; // @usuario, si se conoce
+  ig?: IgFicha;
 }
 
 interface Analisis {
@@ -100,7 +103,7 @@ export default function App() {
   useEffect(()=>{ try { localStorage.setItem('closer_nombre', miNombre); localStorage.setItem('closer_agencia', miAgencia); localStorage.setItem('closer_telefono', miTelefono); localStorage.setItem('closer_email', miEmail); } catch {} },[miNombre, miAgencia, miTelefono, miEmail]);
 
 
-  const [nicho, setNicho] = useState('Clínica Dental');
+  const [nicho, setNicho] = useState('Clínica de estética');
   const [ciudad, setCiudad] = useState('Sevilla');
   const [keyword, setKeyword] = useState('');
   const [leads, setLeads] = useState<Lead[]>(() => {
@@ -114,7 +117,7 @@ export default function App() {
   const [errorBusqueda, setErrorBusqueda] = useState('');
   const [selectedId, setSelectedId] = useState<string>('');
   const [showAdd, setShowAdd] = useState(false);
-  const [newLead, setNewLead] = useState<Partial<Lead>>({ nombre: '', web: '', telefono: '', direccion: '', rating: '4.5', reviews: '12', estado: 'NUEVO' });
+  const [newLead, setNewLead] = useState<Partial<Lead>>({ nombre: '', web: '', telefono: '', direccion: '', rating: '', reviews: '', instagram: '', estado: 'NUEVO' });
   const [bulk, setBulk] = useState('');
   const [analisis, setAnalisis] = useState<Analisis>({
     observaciones: '',
@@ -152,6 +155,13 @@ export default function App() {
   const [seg1Tpl, setSeg1Tpl] = useState('');
   const [seg2Tpl, setSeg2Tpl] = useState('');
   const [calidad, setCalidad] = useState<{ok:boolean; texto:string}[]>([]);
+  const [dmRespTpl, setDmRespTpl] = useState('');
+  const [canal, setCanal] = useState<Canal>('web');
+  const [igUsuario, setIgUsuario] = useState('');
+  const [igTexto, setIgTexto] = useState('');
+  const [igCargando, setIgCargando] = useState(false);
+  const [igError, setIgError] = useState('');
+  const [igManual, setIgManual] = useState(false);
 
   useEffect(()=>{
     try { localStorage.setItem('closer_leads', JSON.stringify(leads)); } catch {}
@@ -168,25 +178,39 @@ export default function App() {
     }
   },[selectedLead?.id, analisis.oportunidad]);
 
-  // Al cambiar de lead: tratamiento principal sacado de su web
+  // Al cambiar de lead: nada del lead anterior (gancho, conversación, estado del closer, pago)
   useEffect(()=>{
-    setTratamiento(selectedLead?.ficha?.tratamientos?.[0] || '');
+    setAnalisis(prev=>({...prev, oportunidad:'', angulo:''}));
+    setFrase2('');
     setContacto('');
-  },[selectedLead?.id, selectedLead?.ficha]);
+    setChatHist([]);
+    setEstadoCloser('FRIO');
+    setCloserChecks([]);
+    setLinkGenerado('');
+    setEmailCliente('');
+    setIgError('');
+    setIgTexto('');
+    setIgManual(false);
+    setIgUsuario(selectedLead?.ig?.usuario || selectedLead?.instagram || selectedLead?.ficha?.instagram || '');
+    setCanal(selectedLead ? (selectedLead.web ? 'web' : selectedLead.ig ? 'instagram' : 'google') : 'web');
+  },[selectedLead?.id]);
+
+  // Tratamiento principal sacado de su web o, si no hay, de su Instagram
+  useEffect(()=>{
+    setTratamiento(selectedLead?.ficha?.tratamientos?.[0] || selectedLead?.ig?.tratamientos?.[0] || '');
+  },[selectedLead?.id, selectedLead?.ficha, selectedLead?.ig]);
 
   const tratamientoMsg = tratamiento.trim() || tratamientoPorDefecto(selectedLead?.nicho || nicho);
 
   // Gancho principal + segundo dato, a partir de lo que se ha visto en SU web
   useEffect(()=>{
     if(!selectedLead) return;
-    if(!selectedLead.ficha && analisis.checks.length===0) return;
-    const lista = ganchos(selectedLead, analisis.checks, tratamientoMsg);
-    const positivo = lineaPositiva(selectedLead);
+    if(selectedLead.web && !selectedLead.ficha && !selectedLead.ig && analisis.checks.length===0) return;
+    const lista = ganchos(selectedLead, analisis.checks, tratamientoMsg, canal);
     setAnalisis(prev=>({...prev, oportunidad: lista[0].frase, angulo: lista[0].id }));
-    void positivo;
-    // Segundo fallo: solo si sale de su web. Nunca rellenar con frases genéricas ni con la línea positiva.
+    // Segundo fallo: solo si es un dato comprobado. Nunca rellenar con frases genéricas ni con la línea positiva.
     setFrase2(lista[1]?.concreto ? lista[1].frase : '');
-  },[analisis.checks, selectedLead?.id, selectedLead?.ficha, tratamientoMsg]);
+  },[analisis.checks, selectedLead?.id, selectedLead?.ficha, selectedLead?.ig, tratamientoMsg, canal]);
 
   // Mensajes personalizados (email, DM, llamada, seguimientos y voz)
   const mensajes = useMemo(()=>{
@@ -199,13 +223,15 @@ export default function App() {
       tratamientoPropio: tratamiento.trim() !== '',
       contacto: contacto.trim() || vozNombre.trim(),
       firma: { nombre: miNombre, agencia: miAgencia, telefono: miTelefono, email: miEmail },
+      canal,
     });
-  },[selectedLead, analisis.oportunidad, frase2, tratamientoMsg, tratamiento, contacto, vozNombre, miNombre, miAgencia, miTelefono, miEmail]);
+  },[selectedLead, analisis.oportunidad, frase2, tratamientoMsg, tratamiento, contacto, vozNombre, miNombre, miAgencia, miTelefono, miEmail, canal]);
 
   useEffect(()=>{
     if(!mensajes) return;
     setEmailTpl(mensajes.email);
     setWaTpl(mensajes.dm);
+    setDmRespTpl(mensajes.dmSiResponde);
     setCallTpl(mensajes.llamada);
     setSeg1Tpl(mensajes.seguimiento1);
     setSeg2Tpl(mensajes.seguimiento2);
@@ -230,13 +256,14 @@ export default function App() {
       web: newLead.web || '',
       telefono: newLead.telefono || '',
       direccion: newLead.direccion || '',
-      rating: newLead.rating || '4.5',
+      rating: newLead.rating || '0',
       reviews: newLead.reviews || '0',
       estado: (newLead.estado as EstadoLead) || 'NUEVO',
+      instagram: normalizarUsuario(newLead.instagram || '') || undefined,
       nicho, ciudad
     };
     setLeads(prev=>[l, ...prev]);
-    setNewLead({ nombre:'', web:'', telefono:'', direccion:'', rating:'4.5', reviews:'12', estado:'NUEVO' });
+    setNewLead({ nombre:'', web:'', telefono:'', direccion:'', rating:'', reviews:'', instagram:'', estado:'NUEVO' });
     setShowAdd(false);
   };
 
@@ -251,8 +278,9 @@ export default function App() {
         web: parts[1] || '',
         telefono: parts[2] || '',
         direccion: parts[3] || '',
-        rating: parts[4] || '4.5',
+        rating: parts[4] || '0',
         reviews: parts[5] || '0',
+        instagram: normalizarUsuario(parts[6] || '') || undefined,
         estado: 'NUEVO' as EstadoLead,
         nicho, ciudad
       };
@@ -266,7 +294,7 @@ export default function App() {
 
   const handleAnalizarWeb = async () => {
     if(!selectedLead || analizando) return;
-    if(!selectedLead.web){ setErrorAnalisis('Este lead no tiene web. Es un hueco en sí mismo: ofrécele web + agente.'); return; }
+    if(!selectedLead.web){ setErrorAnalisis('Este lead no tiene web: analiza su Instagram abajo. Si tampoco tiene, el gancho es que en Google solo aparece el teléfono.'); return; }
     setAnalizando(true);
     setErrorAnalisis('');
     try {
@@ -294,9 +322,50 @@ export default function App() {
     }
   };
 
+  const guardarIg = (ig: IgFicha) => {
+    if(!selectedLead) return;
+    setLeads(prev=>prev.map(x=>x.id===selectedLead.id ? {...x, ig, instagram: ig.usuario} : x));
+    setCanal('instagram');
+    setIgError('');
+    setIgManual(false);
+  };
+
+  const handleAnalizarIg = async () => {
+    if(!selectedLead || igCargando) return;
+    const u = normalizarUsuario(igUsuario);
+    if(!u){ setIgError('Escribe el usuario de Instagram (@usuario o el enlace del perfil).'); return; }
+    setIgCargando(true);
+    setIgError('');
+    try {
+      const r = await fetch('/api/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario: u }),
+      });
+      const data = await r.json();
+      if(!r.ok){
+        if(data?.modo === 'manual') setIgManual(true);
+        throw new Error(data?.error || 'Error analizando Instagram');
+      }
+      guardarIg(analizarInstagram(data));
+    } catch(e: any) {
+      setIgError(e.message || 'Error de conexión');
+    } finally {
+      setIgCargando(false);
+    }
+  };
+
+  const handleAnalizarIgManual = () => {
+    if(!selectedLead) return;
+    const u = normalizarUsuario(igUsuario);
+    if(!u){ setIgError('Escribe también el usuario de Instagram.'); return; }
+    if(igTexto.trim().length < 15){ setIgError('Pega la bio del perfil (y el enlace, si tiene).'); return; }
+    guardarIg(analizarInstagram(crudoDesdeTexto(u, igTexto)));
+  };
+
   const [analizandoTodos, setAnalizandoTodos] = useState(false);
   const [progreso, setProgreso] = useState({ hecho: 0, total: 0 });
-  type Pestana = 'todos' | 'prioritarios' | 'web' | 'sinhuecos' | 'pendientes' | 'seguimiento';
+  type Pestana = 'todos' | 'prioritarios' | 'sinweb' | 'web' | 'sinhuecos' | 'pendientes' | 'seguimiento';
   const [pestana, setPestana] = useState<Pestana>('todos');
 
   const HUECOS_CLAVE = ['sin_whatsapp', 'sin_reservas'];
@@ -440,12 +509,13 @@ export default function App() {
     return n < 2 && d >= (n === 0 ? 3 : 4);
   };
   const categoria = (l: Lead): Exclude<Pestana,'todos'|'seguimiento'> => {
-    if(!l.web || l.analisisEstado !== 'ok') return 'pendientes';
+    if(!l.web) return 'sinweb';
+    if(l.analisisEstado !== 'ok') return 'pendientes';
     if(puntosHuecos(l) > 0) return 'prioritarios';
     return (l.huecos || []).length > 0 ? 'web' : 'sinhuecos';
   };
   const conteos = useMemo(()=>{
-    const c = { todos: filteredLeads.length, prioritarios: 0, web: 0, sinhuecos: 0, pendientes: 0, seguimiento: 0 };
+    const c = { todos: filteredLeads.length, prioritarios: 0, sinweb: 0, web: 0, sinhuecos: 0, pendientes: 0, seguimiento: 0 };
     filteredLeads.forEach(l => { c[categoria(l)]++; if(tocaSeguimiento(l)) c.seguimiento++; });
     return c;
   },[filteredLeads]);
@@ -454,7 +524,7 @@ export default function App() {
     if(pestana === 'todos') return filteredLeads;
     if(pestana === 'seguimiento') return filteredLeads.filter(tocaSeguimiento);
     const lista = filteredLeads.filter(l => categoria(l) === pestana);
-    if(pestana === 'prioritarios') {
+    if(pestana === 'prioritarios' || pestana === 'sinweb') {
       return lista.sort((a,b) => Number(!!b.telefono) - Number(!!a.telefono) || puntosHuecos(b) - puntosHuecos(a) || Number(b.reviews) - Number(a.reviews));
     }
     return lista;
@@ -544,7 +614,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
           <div className="grid grid-cols-5 gap-1 md:gap-2">
             {[
               {n:1, label:'BUSCADOR', sub:'Leads reales'},
-              {n:2, label:'ANALIZADOR', sub:'Web + oportunidad'},
+              {n:2, label:'ANALIZADOR', sub:'Web + Instagram'},
               {n:3, label:'PROSPECCIÓN', sub:'Email/WA/Voz'},
               {n:4, label:'CLOSER V4', sub:'Objeciones IA'},
               {n:5, label:'PAGO', sub:'Stripe real'},
@@ -611,6 +681,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                       <input value={newLead.direccion} onChange={e=>setNewLead({...newLead, direccion:e.target.value})} placeholder="Dirección" className="bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/>
                       <input value={newLead.rating} onChange={e=>setNewLead({...newLead, rating:e.target.value})} placeholder="Rating 4.5" className="bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/>
                       <input value={newLead.reviews} onChange={e=>setNewLead({...newLead, reviews:e.target.value})} placeholder="Reviews 42" className="bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/>
+                      <input value={newLead.instagram} onChange={e=>setNewLead({...newLead, instagram:e.target.value})} placeholder="Instagram @usuario" className="col-span-2 bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/>
                     </div>
                     <button onClick={handleAddLead} className="w-full bg-[#c6ff00] text-black font-bold py-2.5 rounded-lg text-sm">AÑADIR A LISTA PRINCIPAL</button>
                   </div>
@@ -618,7 +689,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
 
                 <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-4">
                   <div className="font-bold text-[11px] tracking-widest text-white/60 mb-2">PEGAR LISTA RÁPIDA (CSV)</div>
-                  <textarea value={bulk} onChange={e=>setBulk(e.target.value)} placeholder="Formato por línea: Nombre, Web, Tel, Dirección, Rating, Reviews&#10;Ej: Clínica Sonrisa, https://..., 954..., C/ Feria 12, 4.5, 38" className="w-full h-24 bg-black border border-white/10 rounded-lg p-2.5 text-[12px] outline-none focus:border-white/20"/>
+                  <textarea value={bulk} onChange={e=>setBulk(e.target.value)} placeholder="Formato por línea: Nombre, Web, Tel, Dirección, Rating, Reviews, Instagram&#10;Ej: Estética Luz, https://..., 954..., C/ Feria 12, 4.5, 38, @esteticaluz" className="w-full h-24 bg-black border border-white/10 rounded-lg p-2.5 text-[12px] outline-none focus:border-white/20"/>
                   <button onClick={handleBulkAdd} className="mt-2 w-full bg-white/10 hover:bg-white/15 border border-white/10 py-2 rounded-lg text-[12px] font-bold flex items-center justify-center gap-2"><Plus size={12}/> AÑADIR {bulk.split('\n').filter(Boolean).length} LEADS</button>
                 </div>
               </div>
@@ -634,6 +705,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                       ['todos','TODOS'],
                       ['prioritarios','PRIORITARIOS'],
                       ['seguimiento','TOCA SEGUIMIENTO'],
+                      ['sinweb','SIN WEB → INSTAGRAM'],
                       ['web','SOLO WEB / SEO'],
                       ['sinhuecos','SIN HUECOS'],
                       ['pendientes','SIN ANALIZAR'],
@@ -658,6 +730,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                                 {l.huecos?.includes('sin_reservas') && <span className="px-1.5 py-0.5 rounded bg-[#c6ff00]/20 text-[#c6ff00] text-[10px]">Sin reservas</span>}
                                 {l.analisisEstado==='error' && <span title={l.analisisError} className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[10px]">No analizado</span>}
                                 {!l.web && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Sin web</span>}
+                                {l.ig && <span className="px-1.5 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-300 text-[10px]">IG analizado{l.ig.citaPorDM ? ' · cita por DM' : ''}</span>}
                                 {!l.telefono && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Sin teléfono</span>}
                                 {l.analisisEstado==='ok' && puntosHuecos(l)===0 && (l.huecos||[]).length>0 && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Solo web / SEO</span>}
                                 {l.estado==='CONTACTADO' && diasDesdeContacto(l)!==null && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/60">Contactado hace {diasDesdeContacto(l)} d</span>}
@@ -752,6 +825,44 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   </div>
                 )}
 
+                {/* ANALIZADOR DE INSTAGRAM */}
+                <div className="mt-5 rounded-xl bg-black border border-fuchsia-400/30 p-3 space-y-2">
+                  <div className="font-bold text-[11px] text-fuchsia-300 tracking-widest">ANALIZADOR DE PERFIL DE INSTAGRAM</div>
+                  <div className="flex gap-2">
+                    <input value={igUsuario} onChange={e=>setIgUsuario(e.target.value)} placeholder="@usuario o enlace del perfil" className="flex-1 bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/>
+                    <button onClick={handleAnalizarIg} disabled={!selectedLead || igCargando} className="px-3 rounded-lg bg-fuchsia-400 text-black font-bold text-[11px] disabled:opacity-40">{igCargando ? 'LEYENDO...' : 'ANALIZAR'}</button>
+                  </div>
+                  {igError && <div className="text-[11px] text-red-400 flex items-center gap-1"><AlertTriangle size={12}/> {igError}</div>}
+                  <button onClick={()=>setIgManual(v=>!v)} className="text-[10px] text-white/50 underline">{igManual ? 'Ocultar' : 'O pega la bio a mano'}</button>
+                  {igManual && (
+                    <div className="space-y-2">
+                      <textarea value={igTexto} onChange={e=>setIgTexto(e.target.value)} placeholder={'Copia de su perfil: nombre, «X publicaciones · X seguidores», la bio y el enlace.\nSi quieres más precisión, añade el texto de 2-3 publicaciones recientes.'} className="w-full h-28 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-fuchsia-400"/>
+                      <button onClick={handleAnalizarIgManual} className="w-full bg-white/10 border border-white/15 font-bold py-2 rounded-lg text-[11px]">ANALIZAR LA BIO PEGADA</button>
+                    </div>
+                  )}
+                  {selectedLead?.ig && (
+                    <div className="text-[11px] space-y-1 pt-1 border-t border-white/10">
+                      <div className="text-white/40 pt-1">@{selectedLead.ig.usuario} · {selectedLead.ig.fuente === 'api' ? 'leído con la API de Meta' : 'bio pegada a mano'} · {new Date(selectedLead.ig.analizadoEl).toLocaleDateString('es-ES')}</div>
+                      {resumenIg(selectedLead.ig).map(x=><div key={x}>{x}</div>)}
+                      {selectedLead.ig.enlaceTipo==='agregador' && <div className="text-amber-300 flex items-center gap-1"><AlertTriangle size={12}/> Abre el enlace de la bio y comprueba si se puede reservar antes de enviar.</div>}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4">
+                  <label className="text-[11px] text-white/50">EL DATO QUE CITAS EN EL MENSAJE SALE DE</label>
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    {([
+                      ['web','SU WEB', !!selectedLead?.web],
+                      ['instagram','SU INSTAGRAM', !!selectedLead?.ig],
+                      ['google','SU FICHA DE GOOGLE', !selectedLead?.web],
+                    ] as [Canal,string,boolean][]).map(([id,label,disponible])=>(
+                      <button key={id} onClick={()=>setCanal(id)} disabled={!disponible} className={`py-2 rounded-lg text-[10px] font-bold border disabled:opacity-30 ${canal===id ? 'bg-[#c6ff00] text-black border-[#c6ff00]' : 'bg-black border-white/15 text-white/70'}`}>{label}</button>
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-white/40 mt-1">Si escribes por Instagram, cita algo de su Instagram: se nota que lo has mirado.</div>
+                </div>
+
                 <div className="mt-4">
                   <label className="text-[11px] text-white/50">TRATAMIENTO QUE SALE EN EL MENSAJE (uno que ofrezcan de verdad)</label>
                   <input value={tratamiento} onChange={e=>setTratamiento(e.target.value)} placeholder="Ej: depilación láser, limpieza facial, ortodoncia invisible..." className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/>
@@ -763,19 +874,19 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                 </div>
 
                 <div className="mt-4">
-                  <label className="text-[11px] text-white/50">GANCHO: DATO DE SU WEB + QUÉ LE PASA A SU CLIENTE (auto + editable; entra en el mensaje)</label>
+                  <label className="text-[11px] text-white/50">GANCHO: DATO SUYO (WEB O INSTAGRAM) + QUÉ LE PASA A SU CLIENTE (auto + editable; entra en el mensaje)</label>
                   <textarea value={analisis.oportunidad} onChange={e=>setAnalisis({...analisis, oportunidad:e.target.value})} className="mt-1 w-full h-24 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00]"/>
                 </div>
 
                 <div className="mt-3">
-                  <label className="text-[11px] text-white/50">SEGUNDO FALLO DE SU WEB (auto + editable; ej.: un enlace que lleva a otra página)</label>
+                  <label className="text-[11px] text-white/50">SEGUNDO DATO SUYO (auto + editable; va en el email y en el seguimiento)</label>
                   <textarea value={frase2} onChange={e=>setFrase2(e.target.value)} placeholder="Escribe aquí otro fallo concreto que hayas visto en su web" className="mt-1 w-full h-20 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00]"/>
                 </div>
 
                 <button onClick={()=>{ if(selectedLead && analisis.oportunidad){ setStep(3);} }} disabled={!analisis.oportunidad} className="mt-5 w-full bg-[#c6ff00] disabled:opacity-30 text-black font-black py-3 rounded-xl flex items-center justify-center gap-2 text-sm tracking-wide">
                   GUARDAR ANÁLISIS Y PASAR A PROSPECCIÓN <ChevronRight size={16}/>
                 </button>
-                {!analisis.oportunidad && <div className="text-[11px] text-amber-300/70 mt-2 flex items-center gap-1"><AlertTriangle size={12}/> Marca al menos 1 check para generar oportunidad automáticamente</div>}
+                {!analisis.oportunidad && <div className="text-[11px] text-amber-300/70 mt-2 flex items-center gap-1"><AlertTriangle size={12}/> Analiza su web o su Instagram, o marca al menos 1 casilla, para generar el gancho</div>}
               </div>
             </div>
           </div>
@@ -826,8 +937,12 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   )}
                   {prospectTab==='whatsapp' && (
                     <div className="space-y-3">
-                      <textarea value={waTpl} onChange={e=>setWaTpl(e.target.value)} className="w-full h-[200px] bg-black border border-white/10 rounded-xl p-4 text-[13px] leading-relaxed outline-none focus:border-white/20"/>
-                      <button onClick={()=>copy(waTpl)} className="w-full bg-[#25D366] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR DM ({waTpl.length} caracteres)</button>
+                      <div className="text-[10px] text-white/40">1.º MENSAJE · corto, un dato suyo y una pregunta. Sin oferta todavía.</div>
+                      <textarea value={waTpl} onChange={e=>setWaTpl(e.target.value)} className="w-full h-[170px] bg-black border border-white/10 rounded-xl p-4 text-[13px] leading-relaxed outline-none focus:border-white/20"/>
+                      <button onClick={()=>copy(waTpl)} className={`w-full font-black py-3 rounded-xl flex items-center justify-center gap-2 ${waTpl.length <= DM_MAX ? 'bg-[#25D366] text-black' : 'bg-amber-400 text-black'}`}><Copy size={14}/> COPIAR 1.º DM ({waTpl.length}/{DM_MAX} caracteres)</button>
+                      <div className="text-[10px] text-white/40 pt-2">2.º MENSAJE · solo si responde: la oferta de la revisión de 15 min</div>
+                      <textarea value={dmRespTpl} onChange={e=>setDmRespTpl(e.target.value)} className="w-full h-[150px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
+                      <button onClick={()=>copy(dmRespTpl)} className="w-full bg-white/10 border border-white/15 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 text-[12px]"><Copy size={12}/> COPIAR RESPUESTA</button>
                     </div>
                   )}
                   {prospectTab==='llamada' && (
@@ -844,7 +959,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 space-y-3">
                 <div className="font-bold text-[11px] tracking-widest text-white/60">SEGUIMIENTOS (aportan algo nuevo, no "¿viste mi mensaje?")</div>
                 <div>
-                  <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otro dato de su web</div>
+                  <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otro dato suyo</div>
                   <textarea value={seg1Tpl} onChange={e=>setSeg1Tpl(e.target.value)} className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-[12px] outline-none"/>
                   <button onClick={()=>copy(seg1Tpl)} className="mt-1 w-full bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 1</button>
                 </div>

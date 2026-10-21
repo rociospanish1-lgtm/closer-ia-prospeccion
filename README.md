@@ -9,6 +9,9 @@ Flujo completo de prospección: buscar negocios en Google Maps → analizar su w
 | `STRIPE_SECRET_KEY` | Crear el checkout de pago (`sk_test_...` para probar, `sk_live_...` para cobrar) |
 | `APP_PASSWORD` | Contraseña para entrar en la app. Obligatoria: protege la app y las rutas `/api` |
 | `PUBLIC_URL` | Opcional. URL pública para las páginas de éxito/cancelación del pago |
+| `IG_ACCESS_TOKEN` | Opcional. Token de larga duración de tu cuenta de Instagram profesional (Graph API). Sin él, el analizador de Instagram funciona pegando la bio |
+| `IG_USER_ID` | Opcional. Id de tu cuenta de Instagram profesional, vinculada a una página de Facebook |
+| `IG_GRAPH_VERSION` | Opcional. Versión de la Graph API (por defecto `v23.0`) |
 
 ## Despliegue
 1. Importa el repo en Vercel (detecta Vite y `/api`).
@@ -22,8 +25,9 @@ npx vercel dev
 ```
 
 ## Flujo
-1. **Paso 1** Buscar por nicho + ciudad (datos reales de Google Maps). Los leads se guardan en el navegador (`localStorage`).
+1. **Paso 1** Buscar por nicho + ciudad (datos reales de Google Maps, hasta 60 por búsqueda, sin negocios cerrados). Los leads se guardan en el navegador (`localStorage`).
 2. **Paso 2** "Analizar web automáticamente": detecta WhatsApp, reservas, píxel, schema local, imágenes y tiempo de carga (`/api/analyze`).
+   Analizador de Instagram: lee el perfil con la API oficial de Meta (`/api/instagram`, solo cuentas de empresa o creador) o la bio pegada a mano. Detecta si piden cita por DM, qué hay en el enlace de la bio, tratamientos, precios y actividad.
 3. **Pasos 3-4** Mensajes y closer.
 4. **Paso 5** Genera un Stripe Checkout (pago único + mensualidad opcional) con `/api/checkout` y lo envías al cliente. Tras pagar, va a `/gracias.html`.
 

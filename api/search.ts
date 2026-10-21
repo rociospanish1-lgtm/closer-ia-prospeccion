@@ -70,34 +70,52 @@ export default async function handler(req: any, res: any) {
       .filter(Boolean)
       .join(" ");
 
-    const response = await fetch(
-      "https://places.googleapis.com/v1/places:searchText",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": apiKey,
-          "X-Goog-FieldMask":
-            "places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount",
-        },
-        body: JSON.stringify({
-          textQuery,
-          languageCode: "es",
-          regionCode: "ES",
-          pageSize: 20,
-        }),
+    // Google devuelve 20 por página y como máximo 3 páginas (60 negocios).
+    // Cada página es una petición a la API de Places (cuenta para la facturación).
+    const places: any[] = [];
+    let pageToken = "";
+    for (let pagina = 0; pagina < 3; pagina++) {
+      const response = await fetch(
+        "https://places.googleapis.com/v1/places:searchText",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": apiKey,
+            "X-Goog-FieldMask":
+              "places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.businessStatus,nextPageToken",
+          },
+          body: JSON.stringify({
+            textQuery,
+            languageCode: "es",
+            regionCode: "ES",
+            pageSize: 20,
+            ...(pageToken ? { pageToken } : {}),
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Si falla una página posterior, nos quedamos con lo que ya teníamos
+        if (places.length) break;
+        return res.status(response.status).json({
+          error: data?.error?.message || "Error al consultar Google Places",
+        });
       }
-    );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: data?.error?.message || "Error al consultar Google Places",
-      });
+      places.push(...(data.places || []));
+      pageToken = data.nextPageToken || "";
+      if (!pageToken) break;
     }
 
-    const leads = (data.places || []).map((place: any) => ({
+    // Fuera los negocios cerrados: no tiene sentido prospectarlos
+    const abiertos = places.filter(
+      (p: any) => p.businessStatus !== "CLOSED_PERMANENTLY" && p.businessStatus !== "CLOSED_TEMPORARILY"
+    );
+
+    const leads = abiertos.map((place: any) => ({
       id: place.id,
       name: place.displayName?.text || "",
       web: place.websiteUri || "",
