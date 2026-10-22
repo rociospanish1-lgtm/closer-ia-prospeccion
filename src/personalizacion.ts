@@ -178,10 +178,50 @@ export function lineaPositiva(lead: DatosLead, canal: Canal = 'web') {
   return '';
 }
 
+// Consejo que la clínica puede aplicar sola, sin nosotros. Primer contacto = dar valor, no vender.
+const CONSEJOS: Record<string, string> = {
+  formulario: 'Se arregla fácil poniendo un calendario de reservas donde se elija día y hora al momento',
+  telefono: 'Se arregla fácil con un enlace de reservas online, donde se elige día y hora al momento',
+  sin_reserva: 'Se arregla fácil con un enlace de reservas online, donde se elige día y hora al momento',
+  whatsapp_manual: 'Algo que ayuda mucho y es gratis: un mensaje automático en WhatsApp Business con precios, horario y cómo pedir cita',
+  wa: 'Algo que ayuda mucho y es gratis: un mensaje automático en WhatsApp Business con precios, horario y cómo pedir cita',
+  sin_whatsapp: 'Con un botón de WhatsApp en la web, quien tiene una duda os escribe en vez de irse a otro sitio',
+  horario: 'Un mensaje automático de fuera de horario, diciendo cuándo contestáis y cómo reservar, ayuda a que no se vayan a otro sitio',
+  dm: 'Algo que ayuda mucho: activar las respuestas automáticas de Instagram con precios y cómo pedir cita',
+  sin_enlace: 'Se arregla fácil poniendo en la bio un enlace para reservar',
+  reserva: 'Unas historias destacadas con las dudas típicas (precio, sesiones, si duele) quitan muchas de esas preguntas',
+  sin_web: 'Algo que ayuda mucho: poner en la ficha de Google un enlace para pedir cita',
+};
+
+export function consejo(angulo: string, frase: string): string {
+  const id = (angulo || '').replace(/^ig_/, '');
+  if (CONSEJOS[id]) return CONSEJOS[id];
+  // Gancho editado a mano: lo deducimos del texto
+  const f = sinAcentos(frase);
+  if (/formulario/.test(f)) return CONSEJOS.formulario;
+  if (/hay que llamar|reservar cita online|no puede reservar/.test(f)) return CONSEJOS.sin_reserva;
+  if (/no he visto whatsapp/.test(f)) return CONSEJOS.sin_whatsapp;
+  if (/whatsapp/.test(f)) return CONSEJOS.whatsapp_manual;
+  if (/privado|instagram/.test(f)) return CONSEJOS.dm;
+  if (/maps|google/.test(f)) return 'Algo que ayuda mucho: completar bien la ficha de Google (categoría, horario, fotos y enlace para pedir cita)';
+  return '';
+}
+
+// Algo bueno y real del negocio, dicho en tono cercano (solo si hay dato)
+function lineaCercana(lead: DatosLead, canal: Canal) {
+  const ig = lead.ig;
+  if (canal === 'instagram' && ig && ig.publicaciones30d !== null && ig.publicaciones30d >= 6) return '¡Qué bien lleváis el Instagram!';
+  const r = Number(String(lead.rating).replace(',', '.'));
+  const n = Number(lead.reviews);
+  if (r >= 4.3 && n >= 15) return `He visto que tenéis un ${String(r).replace('.', ',')} en Google con ${n} reseñas, ¡enhorabuena!`;
+  return '';
+}
+
 export interface Mensajes {
   email: string;
   dm: string;
   dmSiResponde: string;
+  dmOferta: string;
   llamada: string;
   seguimiento1: string;
   seguimiento2: string;
@@ -191,7 +231,7 @@ export interface Mensajes {
   calidad: { ok: boolean; texto: string }[];
 }
 
-export const DM_MAX = 450;
+export const DM_MAX = 500;
 
 export function construirMensajes(opts: {
   lead: DatosLead;
@@ -202,6 +242,7 @@ export function construirMensajes(opts: {
   contacto: string;
   firma: Firma;
   canal?: Canal;
+  angulo?: string; // id del gancho principal, para elegir el consejo
 }): Mensajes {
   const { lead, frase, tratamiento: trat, tratamientoPropio, contacto, firma } = opts;
   const canal: Canal = opts.canal || 'web';
@@ -209,48 +250,50 @@ export function construirMensajes(opts: {
   const nom = lead.nombre;
   const quien = persona(lead.nicho);
   const saludo = contacto ? `Hola ${contacto}` : 'Hola';
-  const positivo = lineaPositiva(lead, canal);
   const otros = (lead.ficha?.tratamientos || lead.ig?.tratamientos || []).filter((t) => t !== trat).slice(0, 2);
   const tratsLista = unir([trat, ...otros]);
   // Evita "de Agencia de automatización, una agencia de automatización"
   const presentacion = /automatizaci/i.test(firma.agencia) ? `${firma.agencia} de Sevilla` : `${firma.agencia}, una agencia de automatización de Sevilla`;
-  const firmaEmail = `${firma.nombre}\n${firma.agencia}${firma.telefono ? `\nTel.: ${firma.telefono}` : ''}${firma.email ? `\nEmail: ${firma.email}` : ''}`;
 
   // Dónde lo hemos visto, dicho con naturalidad
   const fuente = canal === 'instagram' ? 'vuestro Instagram' : canal === 'google' ? 'vuestra ficha de Google' : 'vuestra web';
-  const fuenteDe = canal === 'instagram' ? `el Instagram de ${nom}` : canal === 'google' ? `la ficha de ${nom} en Google` : `la web de ${nom}`;
 
   // Oferta: revisión gratuita de 15 min (diagnóstico primero, automatización después).
   // Nunca "monto agentes que contestan solos" ni cifras de resultados.
   const juntas = quien === 'una clienta' ? 'juntas' : 'juntos';
   const fraseLimpia = frase.trim().replace(/\.$/, '');
-  const fallos = [frase, frase2].filter((x) => x && x.trim()).map((x) => `– ${mayus(x.trim().replace(/\.$/, ''))}.`).join('\n');
-  const revision = `Hago una revisión de 15 minutos, sin coste, para enseñaros dónde se pierden consultas y qué se puede automatizar, por ejemplo contestar y dar cita a quien escribe fuera de horario.`;
-  const pregunta = `¿Te interesa que lo revisemos ${juntas} y veamos qué se puede mejorar?`;
 
-  const email = `Asunto: ${tratamientoPropio ? `${mayus(trat)} en ${nom}` : `Citas fuera de horario en ${nom}`}
+  // PRIMER CONTACTO = dar valor, no vender: un fallo suyo + un consejo que pueden aplicar solos.
+  // Sin oferta, sin "¿hablamos?", sin hablar de la agencia. La oferta llega solo si preguntan a qué te dedicas.
+  const tip = consejo(opts.angulo || '', frase);
+  // Dónde está el fallo que citamos (no por dónde escribimos)
+  const ang = opts.angulo || '';
+  const fuenteDato = ang.startsWith('ig_') ? 'vuestro Instagram' : ang === 'sin_web' ? 'vuestra ficha de Google' : ang ? 'vuestra web' : fuente;
+  const tipFrase = tip ? ` ${tip}.` : '';
+  const cercana = lineaCercana(lead, canal);
+  const firmaCercana = `${firma.nombre}${firma.telefono ? `\n${firma.telefono}` : ''}`;
 
-${contacto ? `Hola ${contacto}` : `Hola, equipo de ${nom}`}:
+  const email = `Asunto: Un detalle de ${fuenteDato}
 
-Soy ${firma.nombre}, de ${presentacion}.${positivo ? ' ' + positivo : ''}
+${contacto ? `Hola, ${contacto}` : 'Hola'}:
 
-He estado mirando ${fuente} y he visto un par de cosas que os pueden estar costando citas:
-${fallos}
+Soy ${firma.nombre}, de Sevilla. Mirando ${fuenteDato} me fijé en un detalle: ${fraseLimpia}.${tipFrase}
 
-${revision}
-
-${pregunta} Si no os encaja, decídmelo y no insisto.
+Os lo comento por si os sirve.
 
 Un saludo,
-${firmaEmail}`;
+${firmaCercana}`;
 
-  // Primer DM (Instagram o WhatsApp): corto, un solo dato y una pregunta fácil de contestar.
-  // La oferta va en el segundo mensaje, cuando ya han respondido.
-  const dm = `${contacto ? `Hola, ${contacto}` : 'Hola'}. Soy ${firma.nombre}, de Sevilla; ayudo a ${sector(lead.nicho)} a no perder citas por mensajes que se quedan sin contestar.
-He visto ${fuenteDe}: ${fraseLimpia}.
-¿Quién os contesta ahora lo que entra por la noche o el fin de semana?`;
+  // Primer mensaje por Instagram o WhatsApp (mismo enfoque, distinto arranque)
+  const dm = canal === 'instagram'
+    ? `¡Hola${contacto ? ', ' + contacto : ''}!${cercana ? ' ' + cercana : ''} Por cierto, mirando ${fuenteDato} vi que ${fraseLimpia}.${tipFrase} Os lo comento por si no lo sabíais. ¡Mucho ánimo!`
+    : `Hola${contacto ? ', ' + contacto : ''}, soy ${firma.nombre}, de Sevilla. Estuve mirando ${fuenteDato} y me fijé en un detalle: ${fraseLimpia}.${tipFrase} Os lo comento por si os sirve. ¡Un saludo y mucho ánimo!`;
 
-  const dmSiResponde = `Gracias por contestar${contacto ? ', ' + contacto : ''}. Lo que hago es una revisión de 15 minutos, sin coste: miro cómo os llegan las consultas (Instagram, WhatsApp, web), dónde se quedan sin respuesta y qué se puede automatizar, como contestar las dudas sobre ${tratsLista} y dar cita fuera de horario. Lo que necesita a una persona lo sigue llevando vuestro equipo. ¿Te viene mejor el martes o el jueves por la mañana?`;
+  // Si contestan: curiosidad, que te cuenten su problema real. Nada de oferta todavía.
+  const dmSiResponde = `¡Me alegro de que os sirva${contacto ? ', ' + contacto : ''}! ¿Y cómo lo lleváis ahora? ¿Os escribe mucha gente preguntando antes de reservar?`;
+
+  // Solo si te preguntan a qué te dedicas
+  const dmOferta = `Me dedico justo a esto: ayudo a ${sector(lead.nicho)} de Sevilla a que no se pierdan consultas ni citas. Si os apetece, hago una revisión de 15 minutos, sin coste, para ver cómo os llegan las consultas (Instagram, WhatsApp, web) y qué se podría automatizar, como contestar las dudas sobre ${tratsLista} y dar cita fuera de horario. Lo que necesita a una persona lo sigue llevando vuestro equipo. ¿Te viene mejor el martes o el jueves por la mañana?`;
 
   const llamada = `Guion de llamada: ${nom}
 
@@ -260,11 +303,13 @@ He visto ${fuenteDe}: ${fraseLimpia}.
 4. Qué hago: "Reviso cómo os llegan las consultas (web, WhatsApp, Instagram), dónde se pierden y qué tareas se pueden automatizar, como contestar las dudas sobre ${tratsLista} y dar cita fuera de horario. Lo que necesita a una persona lo sigue llevando vuestro equipo."
 5. Cierre: "Son 15 minutos, sin coste. ¿Te viene mejor el martes o el jueves por la mañana?"`;
 
+  // Seguimientos: otro consejo útil, sin pedir nada
+  const tip2 = frase2 ? consejo('', frase2) : '';
   const seguimiento1 = frase2
-    ? `${saludo}, te escribí hace unos días por lo de ${nom}. Te dejo otro dato por si te sirve: ${frase2}. Si queréis, lo vemos en 15 minutos.`
-    : `${saludo}, te escribí hace unos días por lo de ${nom}. Si queréis, en 15 minutos os enseño lo que he visto y qué se puede mejorar. ¿Te viene bien esta semana?`;
+    ? `${saludo}, soy ${firma.nombre} otra vez. Mirando ${fuenteDato} vi otra cosa que os puede venir bien: ${frase2.replace(/\.$/, '')}.${tip2 ? ' ' + tip2 + '.' : ''} ¡Un saludo!`
+    : `${saludo}, soy ${firma.nombre} otra vez. ¿Os sirvió lo que os comenté? Si tenéis cualquier duda con eso, me decís. ¡Un saludo!`;
 
-  const seguimiento2 = `${saludo}, no te escribo más sobre ${nom}. Si en algún momento queréis revisar cómo os llegan las consultas y qué se puede automatizar, me escribís y lo vemos. Gracias por tu tiempo.`;
+  const seguimiento2 = `${saludo}, solo quería saber si os sirvió lo que os comenté de ${nom}. No os escribo más; si algún día os viene bien una mano con las citas, aquí me tenéis. ¡Mucho ánimo!`;
 
   const vozInicial = `Hola ${contacto || nom}, soy ${firma.nombre} de ${presentacion} [pausa] He estado mirando ${fuente} y ${fraseLimpia} [pausa corta] Hago una revisión de quince minutos, sin coste, para ver dónde se pierden consultas y qué se puede automatizar, como dar cita fuera de horario [respiración] ¿Te interesa que lo revisemos ${juntas}?`;
   const vozSeguimiento = `Hola ${contacto ? contacto + ', ' : ''}soy ${firma.nombre} de ${firma.agencia} [pausa] Te escribo por lo de ${nom} [respiración] ${frase2 ? mayus(frase2) + ' [pausa corta] ' : ''}Si queréis, lo vemos en quince minutos y os enseño qué se puede mejorar [pausa] ¿Te viene bien esta semana?`;
@@ -280,5 +325,5 @@ He visto ${fuenteDe}: ${fraseLimpia}.
     { ok: dm.length <= DM_MAX, texto: `Primer DM de ${dm.length} caracteres (máx. ${DM_MAX})` },
   ];
 
-  return { email, dm, dmSiResponde, llamada, seguimiento1, seguimiento2, vozInicial, vozSeguimiento, vozCierre, calidad };
+  return { email, dm, dmSiResponde, dmOferta, llamada, seguimiento1, seguimiento2, vozInicial, vozSeguimiento, vozCierre, calidad };
 }

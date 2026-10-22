@@ -159,6 +159,7 @@ export default function App() {
   const [seg2Tpl, setSeg2Tpl] = useState('');
   const [calidad, setCalidad] = useState<{ok:boolean; texto:string}[]>([]);
   const [dmRespTpl, setDmRespTpl] = useState('');
+  const [dmOfertaTpl, setDmOfertaTpl] = useState('');
   const [canal, setCanal] = useState<Canal>('web');
   const [igUsuario, setIgUsuario] = useState('');
   const [igTexto, setIgTexto] = useState('');
@@ -245,14 +246,16 @@ export default function App() {
       contacto: contacto.trim() || vozNombre.trim(),
       firma: { nombre: miNombre, agencia: miAgencia, telefono: miTelefono, email: miEmail },
       canal,
+      angulo: analisis.angulo,
     });
-  },[selectedLead, analisis.oportunidad, frase2, tratamientoMsg, tratamiento, contacto, vozNombre, miNombre, miAgencia, miTelefono, miEmail, canal]);
+  },[selectedLead, analisis.oportunidad, analisis.angulo, frase2, tratamientoMsg, tratamiento, contacto, vozNombre, miNombre, miAgencia, miTelefono, miEmail, canal]);
 
   useEffect(()=>{
     if(!mensajes) return;
     setEmailTpl(mensajes.email);
     setWaTpl(mensajes.dm);
     setDmRespTpl(mensajes.dmSiResponde);
+    setDmOfertaTpl(mensajes.dmOferta);
     setCallTpl(mensajes.llamada);
     setSeg1Tpl(mensajes.seguimiento1);
     setSeg2Tpl(mensajes.seguimiento2);
@@ -961,12 +964,15 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   )}
                   {prospectTab==='whatsapp' && (
                     <div className="space-y-3">
-                      <div className="text-[10px] text-white/40">1.º MENSAJE · corto, un dato suyo y una pregunta. Sin oferta todavía.</div>
+                      <div className="text-[10px] text-white/40">1.º MENSAJE · un fallo suyo + un consejo que pueden aplicar solos. Sin vender nada.</div>
                       <textarea value={waTpl} onChange={e=>setWaTpl(e.target.value)} className="w-full h-[170px] bg-black border border-white/10 rounded-xl p-4 text-[13px] leading-relaxed outline-none focus:border-white/20"/>
                       <button onClick={()=>copy(waTpl)} className={`w-full font-black py-3 rounded-xl flex items-center justify-center gap-2 ${waTpl.length <= DM_MAX ? 'bg-[#25D366] text-black' : 'bg-amber-400 text-black'}`}><Copy size={14}/> COPIAR 1.º DM ({waTpl.length}/{DM_MAX} caracteres)</button>
-                      <div className="text-[10px] text-white/40 pt-2">2.º MENSAJE · solo si responde: la oferta de la revisión de 15 min</div>
+                      <div className="text-[10px] text-white/40 pt-2">2.º MENSAJE · si responde: pregunta con curiosidad, que te cuenten su problema</div>
                       <textarea value={dmRespTpl} onChange={e=>setDmRespTpl(e.target.value)} className="w-full h-[150px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
                       <button onClick={()=>copy(dmRespTpl)} className="w-full bg-white/10 border border-white/15 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 text-[12px]"><Copy size={12}/> COPIAR RESPUESTA</button>
+                      <div className="text-[10px] text-white/40 pt-2">3.º MENSAJE · solo si te preguntan a qué te dedicas: la revisión de 15 min</div>
+                      <textarea value={dmOfertaTpl} onChange={e=>setDmOfertaTpl(e.target.value)} className="w-full h-[150px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
+                      <button onClick={()=>copy(dmOfertaTpl)} className="w-full bg-white/10 border border-white/15 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 text-[12px]"><Copy size={12}/> COPIAR OFERTA</button>
                     </div>
                   )}
                   {prospectTab==='llamada' && (
@@ -983,7 +989,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 space-y-3">
                 <div className="font-bold text-[11px] tracking-widest text-white/60">SEGUIMIENTOS (aportan algo nuevo, no "¿viste mi mensaje?")</div>
                 <div>
-                  <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otro dato suyo</div>
+                  <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otro consejo útil, sin pedir nada</div>
                   <textarea value={seg1Tpl} onChange={e=>setSeg1Tpl(e.target.value)} className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-[12px] outline-none"/>
                   <div className="mt-1 grid grid-cols-2 gap-1">
                     <button onClick={()=>copy(seg1Tpl)} className="bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 1</button>
