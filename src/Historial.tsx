@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Clock, MessageSquare, Phone, Mail, Instagram, StickyNote, Download, Upload, ChevronRight, CheckCircle2, X, Search, AlertTriangle } from 'lucide-react';
+import { Clock, MessageSquare, Phone, Mail, Instagram, StickyNote, Download, Upload, ChevronRight, CheckCircle2, X, Search, AlertTriangle, Pencil } from 'lucide-react';
 import { Evento, CanalEnvio, proximoPaso, fechaCorta, fechaHora, fusionar } from './historial';
 
 export interface LeadH {
@@ -35,6 +35,19 @@ export default function Historial<T extends LeadH>(props: {
   const [texto, setTexto] = useState('');
   const [canalNota, setCanalNota] = useState<CanalEnvio>('instagram');
   const [aviso, setAviso] = useState('');
+  const [editando, setEditando] = useState<{ id: string; idx: number } | null>(null);
+  const [textoEdit, setTextoEdit] = useState('');
+
+  // Cambia el texto de una entrada ya guardada (p. ej. para poner lo que de verdad enviaste)
+  const guardarEdicion = (leadId: string, idx: number) => {
+    setLeads((prev) => prev.map((l) => {
+      if (l.id !== leadId || !l.historial) return l;
+      const historial = l.historial.map((e, i) => (i === idx ? { ...e, texto: textoEdit.trim() } : e));
+      return { ...l, historial };
+    }));
+    setEditando(null);
+    setTextoEdit('');
+  };
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Todo lo que ya se ha tocado, sin depender del nicho o la ciudad del buscador
@@ -133,7 +146,7 @@ export default function Historial<T extends LeadH>(props: {
       <div className="space-y-2">
         {lista.map((l) => {
           const p = pasoTexto(l);
-          const hist = [...(l.historial || [])].sort((a, b) => Date.parse(b.fecha) - Date.parse(a.fecha));
+          const hist = (l.historial || []).map((e, idx) => ({ e, idx })).sort((a, b) => Date.parse(b.e.fecha) - Date.parse(a.e.fecha));
           const primero = (l.historial || []).find((e) => e.tipo === 'contacto');
           const esAbierto = abierto === l.id;
           const proximo = proximoPaso(l);
@@ -166,25 +179,38 @@ export default function Historial<T extends LeadH>(props: {
 
                   <div className="rounded-xl bg-black border border-white/10 p-3 space-y-2">
                     <div className="text-[10px] text-white/40 font-bold tracking-widest">AÑADIR AL HISTORIAL</div>
-                    <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Pega lo que te ha contestado o escribe una nota (p. ej.: «llamé, me dice que hable con la dueña el lunes»)" className="w-full h-20 bg-black border border-white/15 rounded-lg p-2 text-[12px] outline-none focus:border-[#c6ff00]" />
+                    <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Pega lo que te ha contestado, el seguimiento que has enviado tú o una nota (p. ej.: «llamé, me dice que hable con la dueña el lunes»)" className="w-full h-20 bg-black border border-white/15 rounded-lg p-2 text-[12px] outline-none focus:border-[#c6ff00]" />
                     <div className="flex flex-wrap items-center gap-2">
                       <select value={canalNota} onChange={(e) => setCanalNota(e.target.value as CanalEnvio)} className="bg-black border border-white/15 rounded px-2 py-1.5 text-[11px]">
                         {(Object.keys(NOMBRE_CANAL) as CanalEnvio[]).map((c) => <option key={c} value={c}>{NOMBRE_CANAL[c]}</option>)}
                       </select>
                       <button disabled={!texto.trim()} onClick={() => { registrar(l.id, { fecha: new Date().toISOString(), tipo: 'respuesta', canal: canalNota, texto: texto.trim() }, { estado: 'CALIENTE' } as Partial<T>); setTexto(''); }} className="px-3 py-1.5 rounded-lg bg-[#c6ff00] text-black font-bold text-[11px] disabled:opacity-30">GUARDAR COMO RESPUESTA SUYA</button>
                       <button disabled={!texto.trim()} onClick={() => { registrar(l.id, { fecha: new Date().toISOString(), tipo: 'nota', canal: canalNota, texto: texto.trim() }); setTexto(''); }} className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 font-bold text-[11px] disabled:opacity-30">GUARDAR COMO NOTA</button>
+                      {l.estado === 'CONTACTADO' && proximo.tipo !== 'cerrar' && (
+                        <button disabled={!texto.trim()} onClick={() => { registrar(l.id, { fecha: new Date().toISOString(), tipo: 'seguimiento', canal: canalNota, texto: texto.trim() }, { ultimoContacto: new Date().toISOString(), seguimientos: (l.seguimientos || 0) + 1 } as Partial<T>); setTexto(''); }} className="px-3 py-1.5 rounded-lg bg-amber-400 text-black font-bold text-[11px] disabled:opacity-30">GUARDAR COMO MI {proximo.tipo === 'seguimiento1' ? '1.er' : '2.º'} SEGUIMIENTO</button>
+                      )}
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    {hist.map((e, i) => {
+                    {hist.map(({ e, idx }) => {
                       const Icono = e.canal ? ICONO[e.canal] : StickyNote;
+                      const enEdicion = editando?.id === l.id && editando.idx === idx;
                       return (
-                        <div key={i} className={`p-3 rounded-xl border text-[12px] ${e.tipo === 'respuesta' ? 'bg-[#c6ff00]/10 border-[#c6ff00]/30' : 'bg-black border-white/10'}`}>
+                        <div key={idx} className={`p-3 rounded-xl border text-[12px] ${e.tipo === 'respuesta' ? 'bg-[#c6ff00]/10 border-[#c6ff00]/30' : 'bg-black border-white/10'}`}>
                           <div className="flex items-center gap-2 text-[10px] text-white/50 mb-1">
                             <Icono size={11} /><span className="font-bold text-white/80">{NOMBRE_TIPO[e.tipo]}</span>{e.canal && <span>· {NOMBRE_CANAL[e.canal]}</span>}<span className="ml-auto">{fechaHora(e.fecha)}</span>
+                            {!enEdicion && <button onClick={() => { setEditando({ id: l.id, idx }); setTextoEdit(e.texto || ''); }} className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 text-white/70 font-bold"><Pencil size={10} /> EDITAR</button>}
                           </div>
-                          {e.texto && <div className="whitespace-pre-wrap leading-relaxed text-white/80">{e.texto}</div>}
+                          {enEdicion ? (
+                            <div className="space-y-2">
+                              <textarea value={textoEdit} onChange={(ev) => setTextoEdit(ev.target.value)} placeholder="Pega aquí lo que escribiste de verdad" className="w-full h-28 bg-black border border-[#c6ff00]/50 rounded-lg p-2 text-[12px] outline-none" autoFocus />
+                              <div className="flex gap-2">
+                                <button onClick={() => guardarEdicion(l.id, idx)} className="px-3 py-1.5 rounded-lg bg-[#c6ff00] text-black font-bold text-[11px]">GUARDAR CAMBIOS</button>
+                                <button onClick={() => { setEditando(null); setTextoEdit(''); }} className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 font-bold text-[11px]">CANCELAR</button>
+                              </div>
+                            </div>
+                          ) : e.texto && <div className="whitespace-pre-wrap leading-relaxed text-white/80">{e.texto}</div>}
                         </div>
                       );
                     })}
