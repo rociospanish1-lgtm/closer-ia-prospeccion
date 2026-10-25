@@ -131,7 +131,8 @@ export default function App() {
     oportunidad: '',
     angulo: ''
   });
-  const [prospectTab, setProspectTab] = useState<'email'|'whatsapp'|'llamada'>('email');
+  const [prospectTab, setProspectTab] = useState<'email'|'whatsapp'|'llamada'|'guion'>('guion');
+  const [guion, setGuion] = useState<string[]>(['','','','']);
   const [emailTpl, setEmailTpl] = useState('');
   const [waTpl, setWaTpl] = useState('');
   const [callTpl, setCallTpl] = useState('');
@@ -249,6 +250,22 @@ export default function App() {
       angulo: analisis.angulo,
     });
   },[selectedLead, analisis.oportunidad, analisis.angulo, frase2, tratamientoMsg, tratamiento, contacto, vozNombre, miNombre, miAgencia, miTelefono, miEmail, canal]);
+
+  // Guion de preguntas (4 pasos): preguntas de hechos, máximo 3 antes de proponer
+  const guionGenerado = useMemo(()=>{
+    if(!selectedLead) return ['','','',''];
+    const saludo = contacto.trim() ? `Hola, ${contacto.trim()}` : 'Hola';
+    const donde = canal==='instagram' ? 'vuestro perfil' : 'vuestra web';
+    const trat = tratamiento.trim();
+    const gusto = trat ? `me ha llamado la atención lo que ofrecéis de ${trat.toLowerCase()}` : 'me ha gustado mucho lo que hacéis';
+    return [
+      `${saludo}, soy ${miNombre}, de Sevilla. Estuve viendo ${donde} de ${selectedLead.nombre} y ${gusto}. Una curiosidad: ¿las citas os llegan más por WhatsApp, por Instagram o por teléfono?`,
+      `¿Y los mensajes que llegan por la noche o el fin de semana, quién los contesta?`,
+      `¿Cuántos mensajes de esos, más o menos, se quedan sin cita a la semana?`,
+      `Tengo montado un asistente que contesta esos mensajes y da la cita al momento, también de noche y en fin de semana. ¿Te enseño en 10 minutos cómo quedaría con vuestros tratamientos?`,
+    ];
+  },[selectedLead?.id, selectedLead?.nombre, contacto, canal, tratamiento, miNombre]);
+  useEffect(()=>{ setGuion(guionGenerado); },[guionGenerado]);
 
   useEffect(()=>{
     if(!mensajes) return;
@@ -943,6 +960,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden">
                 <div className="flex border-b border-white/10">
                   {[
+                    {id:'guion', label:'GUION', icon: Target},
                     {id:'email', label:'EMAIL', icon: Mail},
                     {id:'whatsapp', label:'DM / WHATSAPP', icon: MessageSquare},
                     {id:'llamada', label:'LLAMADA', icon: Phone},
@@ -956,6 +974,24 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   })}
                 </div>
                 <div className="p-4">
+                  {prospectTab==='guion' && (
+                    <div className="space-y-3">
+                      <div className="text-[11px] text-white/60 leading-relaxed">Conversación por preguntas. Envía <b>solo el paso 1</b> y espera respuesta. Pregunta por <b>hechos</b>, no por opiniones. Máximo 3 preguntas antes de proponer.</div>
+                      {[
+                        'PASO 1 · APERTURA: algo que viste + una pregunta de hecho',
+                        'PASO 2 · FUERA DE HORARIO (cuando conteste al paso 1)',
+                        'PASO 3 · CUANTIFICAR (cuántos se pierden)',
+                        'PASO 4 · PROPUESTA CONCRETA Y PEQUEÑA',
+                      ].map((titulo, i)=>(
+                        <div key={i}>
+                          <div className="text-[10px] text-white/40 mb-1">{titulo}</div>
+                          <textarea value={guion[i]} onChange={e=>setGuion(g=>g.map((x,j)=>j===i ? e.target.value : x))} className={`w-full ${i===0 ? 'h-[130px]' : 'h-[80px]'} bg-black border border-white/10 rounded-xl p-3 text-[13px] leading-relaxed outline-none focus:border-white/20`}/>
+                          <button onClick={()=>copy(guion[i])} className={`mt-1 w-full font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 text-[12px] ${i===0 ? 'bg-[#c6ff00] text-black font-black' : 'bg-white/10 border border-white/15'}`}><Copy size={12}/> COPIAR PASO {i+1}</button>
+                        </div>
+                      ))}
+                      <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-[11px] text-amber-200">Si en el paso 2 te dicen que lo contestan siempre al momento: no insistas. Despídete bien y pasa a la siguiente clínica.</div>
+                    </div>
+                  )}
                   {prospectTab==='email' && (
                     <div className="space-y-3">
                       <textarea value={emailTpl} onChange={e=>setEmailTpl(e.target.value)} className="w-full h-[320px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
@@ -1030,11 +1066,11 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
               </div>
 
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-                <div className="text-[10px] text-white/40 mb-2">SE GUARDA EN EL HISTORIAL EL MENSAJE DE LA PESTAÑA ABIERTA ({prospectTab==='email' ? 'EMAIL' : prospectTab==='llamada' ? 'LLAMADA' : canal==='instagram' ? 'DM DE INSTAGRAM' : 'WHATSAPP'})</div>
+                <div className="text-[10px] text-white/40 mb-2">SE GUARDA EN EL HISTORIAL EL MENSAJE DE LA PESTAÑA ABIERTA ({prospectTab==='guion' ? 'PASO 1 DEL GUION' : prospectTab==='email' ? 'EMAIL' : prospectTab==='llamada' ? 'LLAMADA' : canal==='instagram' ? 'DM DE INSTAGRAM' : 'WHATSAPP'})</div>
                 <button onClick={()=>{
                   if(!selectedLead) return;
                   const canalEnvio: CanalEnvio = prospectTab==='email' ? 'email' : prospectTab==='llamada' ? 'llamada' : canal==='instagram' ? 'instagram' : 'whatsapp';
-                  const textoEnviado = prospectTab==='email' ? emailTpl : prospectTab==='llamada' ? callTpl : waTpl;
+                  const textoEnviado = prospectTab==='guion' ? guion[0] : prospectTab==='email' ? emailTpl : prospectTab==='llamada' ? callTpl : waTpl;
                   const yaContactado = (selectedLead.historial||[]).some(e=>e.tipo==='contacto');
                   registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo: yaContactado ? 'nota' : 'contacto', canal: canalEnvio, texto: yaContactado ? `Otro envío:\n${textoEnviado}` : textoEnviado },
                     yaContactado ? {} : { estado:'CONTACTADO', ultimoContacto:new Date().toISOString(), seguimientos:0 });
