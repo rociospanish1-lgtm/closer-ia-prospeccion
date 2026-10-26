@@ -6,7 +6,30 @@ import {
   User, Sparkles, Flame
 } from 'lucide-react';
 import { Ficha, Canal, ganchos, construirMensajes, tratamientoPorDefecto, DM_MAX } from './personalizacion';
-import { IgFicha, analizarInstagram, crudoDesdeTexto, normalizarUsuario, resumenIg } from './instagram';
+import { IgFicha, analizarInstagram, crudoDesdeTexto, normalizarUsuario, resumenIg, valoracionOfertas } from './instagram';
+
+// Ofertas, bonos y descuentos que publica el negocio (web o Instagram), con la lectura para valorar el lead
+function BloqueOfertas({ ofertas, tipos, descuentoMax }: { ofertas: { texto: string; fecha?: string }[]; tipos?: string[]; descuentoMax?: number | null }) {
+  return (
+    <div className="mt-2 pt-2 border-t border-white/10 space-y-1">
+      <div className="font-bold text-amber-300 tracking-widest">OFERTAS, BONOS Y DESCUENTOS</div>
+      {ofertas.length ? (
+        <>
+          <div className="text-white/60">{(tipos || []).join(' · ')}{descuentoMax ? ` · hasta ${descuentoMax} %` : ''}</div>
+          {ofertas.map((o) => (
+            <div key={o.texto} className="pl-2 border-l-2 border-amber-300/50">
+              {o.fecha && <span className="text-white/40">{new Date(o.fecha).toLocaleDateString('es-ES')} · </span>}
+              {o.texto}
+            </div>
+          ))}
+        </>
+      ) : (
+        <div className="text-white/50">No se ven publicadas.</div>
+      )}
+      <div className="text-white/50 italic">{valoracionOfertas(ofertas.length, tipos)}</div>
+    </div>
+  );
+}
 import { Evento, CanalEnvio, migrar, proximoPaso, fechaCorta } from './historial';
 import Historial from './Historial';
 
@@ -866,6 +889,9 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                     <div><span className="text-white/40">WhatsApp:</span> {selectedLead.ficha.whatsappTipo ? 'botón que abre su chat (sin agente detectado)' : 'no aparece'}{selectedLead.ficha.chat ? ` · chat: ${selectedLead.ficha.chat}` : ''}</div>
                     <div><span className="text-white/40">Horario:</span> {selectedLead.ficha.horario || 'no aparece en la web'}{selectedLead.ficha.horario ? ` · sábado ${selectedLead.ficha.abreSabado ? 'sí' : 'no'} · domingo ${selectedLead.ficha.abreDomingo ? 'sí' : 'no'}` : ''}</div>
                     {selectedLead.ficha.instagram && <div><span className="text-white/40">Instagram:</span> @{selectedLead.ficha.instagram}</div>}
+                    {selectedLead.ficha.ofertas
+                      ? <BloqueOfertas ofertas={selectedLead.ficha.ofertas.map(texto=>({texto}))} tipos={selectedLead.ficha.tiposOferta} descuentoMax={selectedLead.ficha.descuentoMax}/>
+                      : <div className="text-white/40">Ofertas y bonos: vuelve a analizar la web para verlos.</div>}
                   </div>
                 )}
 
@@ -888,6 +914,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                     <div className="text-[11px] space-y-1 pt-1 border-t border-white/10">
                       <div className="text-white/40 pt-1">@{selectedLead.ig.usuario} · {selectedLead.ig.fuente === 'api' ? 'leído con la API de Meta' : 'bio pegada a mano'} · {new Date(selectedLead.ig.analizadoEl).toLocaleDateString('es-ES')}</div>
                       {resumenIg(selectedLead.ig).map(x=><div key={x}>{x}</div>)}
+                      {selectedLead.ig.ofertas && <BloqueOfertas ofertas={selectedLead.ig.ofertas} tipos={selectedLead.ig.tiposOferta} descuentoMax={selectedLead.ig.descuentoMax}/>}
                       {selectedLead.ig.enlaceTipo==='agregador' && <div className="text-amber-300 flex items-center gap-1"><AlertTriangle size={12}/> Abre el enlace de la bio y comprueba si se puede reservar antes de enviar.</div>}
                     </div>
                   )}

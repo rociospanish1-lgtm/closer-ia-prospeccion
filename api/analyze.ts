@@ -182,6 +182,50 @@ const CHATS: [string, RegExp][] = [
 
 const WIDGETS_WHATSAPP = /joinchat|wa-widget|getbutton\.io|elfsight.*whatsapp|superlemon|wati\.io|whatsapp-button|click-to-chat|ht-ctc/;
 
+// ---------- Ofertas, bonos y descuentos ----------
+// Mismo criterio que src/instagram.ts. Solo se recoge lo que el negocio publica tal cual.
+const RE_OFERTA =
+  /\b(ofertas?|promo|promos|promocion|promociones|descuentos?|dto|rebajas?|bonos?|packs?|2x1|3x2|black ?friday|cyber ?monday|precios? especial(es)?|gratis|gratuit[ao]s?|de regalo|regalamos|cupon(es)?|codigo (de )?descuento|codigo promocional|sesion de prueba|financiacion|financiamos|sin intereses)\b/;
+const RUIDO_OFERTA = /cookie|politica de privacidad|aviso legal|envios? gratis|newsletter|suscrib/;
+const TIPOS_OFERTA: [string, RegExp][] = [
+  ["descuento", /oferta|promo|descuento|dto|rebaja|friday|monday|especial|cupon|codigo|\d\s?%/],
+  ["bono", /bono|pack/],
+  ["2x1", /2x1|3x2/],
+  ["regalo / gratis", /gratis|gratuit|regalo|regalamos|sesion de prueba/],
+  ["financiación", /financ|sin intereses/],
+];
+
+export function detectarOfertas(texto: string) {
+  const frases = (texto || "")
+    .split(/\n|(?<=[.!?])\s+/)
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter((s) => s.length >= 8);
+  const vistos = new Set<string>();
+  const ofertas: string[] = [];
+  const tipos = new Set<string>();
+  let descuentoMax: number | null = null;
+  for (const f of frases) {
+    const p = sinAcentos(f);
+    const m = p.match(RE_OFERTA);
+    if (!m || RUIDO_OFERTA.test(p)) continue;
+    for (const [tipo, re] of TIPOS_OFERTA) if (re.test(p)) tipos.add(tipo);
+    for (const pm of p.matchAll(/(\d{1,2})\s?%/g)) {
+      const n = Number(pm[1]);
+      if (n >= 5 && n <= 90) descuentoMax = Math.max(descuentoMax ?? 0, n);
+    }
+    let frag = f;
+    if (frag.length > 160) {
+      const ini = Math.max(0, (m.index || 0) - 60);
+      frag = (ini > 0 ? "…" : "") + f.slice(ini, ini + 160).trim() + "…";
+    }
+    const clave = sinAcentos(frag).replace(/[^a-z0-9]/g, "");
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    ofertas.push(frag);
+  }
+  return { ofertas: ofertas.slice(0, 6), tiposOferta: [...tipos], descuentoMax };
+}
+
 export function extraerFicha(html: string) {
   const h = html.toLowerCase();
   const texto = textoVisible(html);
@@ -245,6 +289,7 @@ export function extraerFicha(html: string) {
     whatsappTipo,
     chat,
     instagram,
+    ...detectarOfertas(texto), // ofertas, tiposOferta, descuentoMax
     pocoTexto: texto.length < 600, // web montada con JavaScript: hay que revisarla a mano
   };
 }

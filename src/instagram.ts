@@ -41,7 +41,63 @@ export interface IgFicha {
   diasUltimaPublicacion: number | null;
   mediaComentarios: number | null;
   postsConInfoPorDM: number; // publicaciones que dicen "info por privado", "precio por DM"...
+  // Ofertas, bonos y descuentos publicados (bio + publicaciones). Opcional: los leads antiguos no lo tienen.
+  ofertas?: { texto: string; fecha?: string }[];
+  tiposOferta?: string[];
+  descuentoMax?: number | null;
+  postsConOferta?: number | null; // de las publicaciones leídas, cuántas anuncian una oferta
   analizadoEl: string;
+}
+
+// ---------- Ofertas, bonos y descuentos ----------
+// Mismo criterio que en api/analyze.ts (la web). Solo se recoge lo que el negocio publica tal cual.
+const RE_OFERTA =
+  /\b(ofertas?|promo|promos|promocion|promociones|descuentos?|dto|rebajas?|bonos?|packs?|2x1|3x2|black ?friday|cyber ?monday|precios? especial(es)?|gratis|gratuit[ao]s?|de regalo|regalamos|cupon(es)?|codigo (de )?descuento|codigo promocional|sesion de prueba|financiacion|financiamos|sin intereses)\b/;
+const RUIDO_OFERTA = /cookie|politica de privacidad|aviso legal|envios? gratis|newsletter|suscrib/;
+const TIPOS_OFERTA: [string, RegExp][] = [
+  ['descuento', /oferta|promo|descuento|dto|rebaja|friday|monday|especial|cupon|codigo|\d\s?%/],
+  ['bono', /bono|pack/],
+  ['2x1', /2x1|3x2/],
+  ['regalo / gratis', /gratis|gratuit|regalo|regalamos|sesion de prueba/],
+  ['financiación', /financ|sin intereses/],
+];
+
+export function detectarOfertas(texto: string) {
+  const frases = (texto || '')
+    .split(/\n|(?<=[.!?])\s+/)
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter((s) => s.length >= 8);
+  const vistos = new Set<string>();
+  const ofertas: string[] = [];
+  const tipos = new Set<string>();
+  let descuentoMax: number | null = null;
+  for (const f of frases) {
+    const p = sinAcentos(f);
+    const m = p.match(RE_OFERTA);
+    if (!m || RUIDO_OFERTA.test(p)) continue;
+    for (const [tipo, re] of TIPOS_OFERTA) if (re.test(p)) tipos.add(tipo);
+    for (const pm of p.matchAll(/(\d{1,2})\s?%/g)) {
+      const n = Number(pm[1]);
+      if (n >= 5 && n <= 90) descuentoMax = Math.max(descuentoMax ?? 0, n);
+    }
+    let frag = f;
+    if (frag.length > 160) {
+      const ini = Math.max(0, (m.index || 0) - 60);
+      frag = (ini > 0 ? '…' : '') + f.slice(ini, ini + 160).trim() + '…';
+    }
+    const clave = sinAcentos(frag).replace(/[^a-z0-9]/g, '');
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    ofertas.push(frag);
+  }
+  return { ofertas: ofertas.slice(0, 6), tiposOferta: [...tipos], descuentoMax };
+}
+
+// Lectura para valorar el lead a partir de sus ofertas
+export function valoracionOfertas(n: number, tipos: string[] = []): string {
+  if (!n) return 'No se ven ofertas ni bonos publicados: el argumento es la atención del día a día, no los picos de consultas.';
+  const bonos = tipos.includes('bono') ? ' y vende bonos (clientas que vuelven y preguntan por sesiones pendientes)' : '';
+  return `Hace promociones${bonos}: invierte en atraer clientas y cada campaña trae un pico de preguntas de precio y disponibilidad. Buen encaje para el agente; menciona la oferta en el mensaje.`;
 }
 
 const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -193,6 +249,23 @@ export function analizarInstagram(c: IgCrudo, ahora = Date.now()): IgFicha {
     ? Math.round(conComentarios.reduce((s, p) => s + (p.comentarios || 0), 0) / conComentarios.length)
     : null;
 
+  // Ofertas: primero las de las publicaciones (con su fecha), luego las de la bio
+  const ofertas: { texto: string; fecha?: string }[] = [];
+  const tiposOferta = new Set<string>();
+  let descuentoMax: number | null = null;
+  let postsConOferta = 0;
+  const sumar = (texto: string, fecha?: string) => {
+    const r = detectarOfertas(texto);
+    r.tiposOferta.forEach((t) => tiposOferta.add(t));
+    if (r.descuentoMax !== null) descuentoMax = Math.max(descuentoMax ?? 0, r.descuentoMax);
+    // Una línea por publicación (con su fecha); en la bio, una por oferta
+    const trozos = fecha ? [r.ofertas.join(' ').slice(0, 240)].filter(Boolean) : r.ofertas;
+    trozos.forEach((o) => { if (!ofertas.some((x) => x.texto === o)) ofertas.push({ texto: o, fecha }); });
+    return r.ofertas.length > 0;
+  };
+  for (const p of posts) if (sumar(p.caption || '', p.fecha)) postsConOferta++;
+  sumar(c.bio || '');
+
   return {
     usuario: c.usuario,
     nombre: c.nombre || '',
@@ -211,6 +284,10 @@ export function analizarInstagram(c: IgCrudo, ahora = Date.now()): IgFicha {
     diasUltimaPublicacion,
     mediaComentarios,
     postsConInfoPorDM,
+    ofertas: ofertas.slice(0, 6),
+    tiposOferta: [...tiposOferta],
+    descuentoMax,
+    postsConOferta: posts.length ? postsConOferta : null,
     analizadoEl: new Date(ahora).toISOString(),
   };
 }
@@ -224,6 +301,10 @@ export function resumenIg(f: IgFicha): string[] {
   if (f.postsConInfoPorDM) l.push(`Publicaciones que mandan al privado para info/precio: ${f.postsConInfoPorDM}`);
   if (f.tratamientos.length) l.push(`Tratamientos: ${f.tratamientos.join(', ')}`);
   if (f.precio) l.push(`Precio visto: ${f.precio.tratamiento} · ${f.precio.euros} €`);
+  if (f.ofertas) {
+    const n = f.ofertas.length;
+    l.push(`Ofertas y bonos: ${n ? `${f.postsConOferta ? `${f.postsConOferta} publicaciones con promo · ` : ''}${(f.tiposOferta || []).join(', ')}${f.descuentoMax ? ` · hasta ${f.descuentoMax} %` : ''}` : 'no se ven'}`);
+  }
   if (f.publicaciones30d !== null) l.push(`Actividad: ${f.publicaciones30d} publicaciones en 30 días${f.diasUltimaPublicacion !== null ? ` · última hace ${f.diasUltimaPublicacion} d` : ''}${f.mediaComentarios !== null ? ` · ${f.mediaComentarios} comentarios de media` : ''}`);
   return l;
 }

@@ -14,6 +14,10 @@ export interface Ficha {
   whatsappTipo: 'widget' | 'enlace' | '';
   chat: string;
   instagram: string;
+  // Ofertas, bonos y descuentos publicados en la web. Opcional: los leads antiguos no lo tienen.
+  ofertas?: string[];
+  tiposOferta?: string[];
+  descuentoMax?: number | null;
   pocoTexto: boolean;
 }
 
