@@ -33,14 +33,20 @@ function BloqueOfertas({ ofertas, tipos, descuentoMax }: { ofertas: { texto: str
 import { Evento, CanalEnvio, migrar, proximoPaso, fechaCorta } from './historial';
 import Historial from './Historial';
 
-// Planes de la agencia (rociopinedaia.es). Precios sin IVA.
+// Servicios y precios de rociopinedaia.es (condiciones de contratación, comprobado el 12/11/2026).
+// Importes sin IVA: Closer suma el 21 % al cobrar. Pago al contratar: alta + 1.ª cuota; después,
+// cuota mensual por Stripe. Sin permanencia (se cancela avisando con 30 días).
+const PLAZO = '5–10 días';
 const PLANES = [
-  { id: 'esencial', nombre: 'Esencial', cuota: 149, alta: 390, para: 'clínicas de 1–2 profesionales', plazo: '5–7 días laborables',
-    incluye: ['Agente de WhatsApp 24/7 (dudas, precios, tratamientos, horarios)', 'Capta los datos del cliente y avisa a la clínica', 'Hasta 300 conversaciones al mes', 'Ajuste fino 2 semanas'] },
-  { id: 'pro', nombre: 'Pro', cuota: 279, alta: 790, para: 'clínicas de 2–5 profesionales', plazo: '7–10 días laborables',
-    incluye: ['Todo lo del Esencial', 'Agenda citas sola en su calendario', 'Recordatorios para reducir ausencias', 'Instagram (mensajes directos)', 'Panel de contactos · hasta 600 conversaciones/mes'] },
-  { id: 'premium', nombre: 'Premium', cuota: 590, alta: 1490, para: 'clínicas grandes o con varias sedes', plazo: '2–3 semanas',
-    incluye: ['Todo lo del Pro', 'Agente de voz para llamadas perdidas y fuera de horario', 'Conexión con su programa de gestión', 'Campaña mensual de reactivación', 'Informe mensual · 1.200 conversaciones + 300 min'] },
+  { id: 'whatsapp', nombre: 'Agente IA para WhatsApp', corto: 'WhatsApp', cuota: 39, alta: 297, para: 'el que se recomienda para empezar',
+    incluye: ['Diseño y entrenamiento del agente con la información de la clínica', 'Configuración de su cuenta de WhatsApp Business (Meta)', 'Puesta en funcionamiento y pruebas', 'Entrega del agente listo para operar'],
+    noIncluye: ['Costes de WhatsApp/Meta (mensajes, plantillas): normalmente 20–70 € al mes, los factura Meta a la clínica', 'Consumo del modelo de IA por mensaje'] },
+  { id: 'voz', nombre: 'Agente IA de Voz', corto: 'Voz', cuota: 59, alta: 397, para: 'llamadas perdidas y fuera de horario',
+    incluye: ['Diseño y entrenamiento del agente de voz con la información de la clínica', 'Configuración del proveedor de telefonía', 'Puesta en funcionamiento y pruebas', 'Entrega del agente listo para operar'],
+    noIncluye: ['Costes del proveedor de telefonía (minutos de llamada)', 'Consumo del modelo de IA por minuto o conversación'] },
+  { id: 'pack', nombre: 'Pack Agente IA WhatsApp + Voz', corto: 'WhatsApp + Voz', cuota: 79, alta: 497, para: 'los dos canales, integrados',
+    incluye: ['Todo lo del Agente IA para WhatsApp', 'Todo lo del Agente IA de Voz', 'Integración coordinada entre ambos canales', 'Puesta en funcionamiento y pruebas'],
+    noIncluye: ['Costes de WhatsApp/Meta y del proveedor de telefonía', 'Consumo de los modelos de IA'] },
 ] as const;
 type PlanId = typeof PLANES[number]['id'];
 const conIva = (n: number) => Math.round(n * 1.21 * 100) / 100;
@@ -54,7 +60,7 @@ const OBJECIONES_V4 = [
   {key:'Me lo pienso', estrategia:'Clasificar como SEGUIMIENTO → aportar valor relacionado con la conversación → dejar espacio', queEvitar:'No preguntar "¿lo has pensado?", "¿te has decidido?" ni crear urgencia falsa', ejemplo:'Claro, sin problema. En vuestro caso, lo importante sería que el agente se encargara de [problema concreto] y derivara al equipo los casos que necesitan atención humana. Así podéis valorarlo con calma.'},
   {key:'No me interesa', estrategia:'Clasificar como NO_INTERESADO → cerrar cordialmente → detener el proceso comercial', queEvitar:'No intentar darle la vuelta automáticamente ni presentar otra oferta', ejemplo:'Sin problema, gracias por decírmelo claro. Cierro aquí el tema. Que vaya todo genial con el negocio.'},
   {key:'No me contactes más', estrategia:'Clasificar inmediatamente como NO_CONTACTAR → detener cualquier seguimiento o contacto comercial', queEvitar:'No hacer preguntas, no ofrecer alternativas y no intentar recuperar la venta', ejemplo:'Entendido. Cierro el tema y no volveré a contactarte por esto. Gracias por decírmelo.'},
-  {key:'¿Cuánto cuesta?', estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:'Por lo que hemos hablado, os encaja el plan [plan]: [cuota] €/mes + IVA y [alta] € + IVA de alta, que incluye montarlo, probarlo con vosotros y ajustarlo dos semanas. [retorno]Si quieres avanzar, te explico el siguiente paso.'},
+  {key:'¿Cuánto cuesta?', estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:'Por lo que hemos hablado, os encaja el [plan]: [alta] € + IVA de alta y [cuota] €/mes + IVA, sin permanencia. Incluye diseñarlo y entrenarlo con vuestra información, configurar vuestro WhatsApp y entregároslo funcionando en 5–10 días. [retorno]¿Quieres que te mande el enlace para empezar?'},
   {key:'No necesito IA', estrategia:'No discutir → entender si realmente no existe una necesidad o si simplemente no quiere utilizar IA → si no hay necesidad, cerrar', queEvitar:'No intentar convencer de que necesita IA', ejemplo:'Perfecto, lo entiendo. Al final lo importante no es utilizar IA por utilizarla, sino que resuelva un problema real. Si ahora mismo no tenéis esa necesidad, no tendría sentido añadir nada.'},
   {key:'Ya tengo a alguien', estrategia:'Validar → diferenciar sustitución de apoyo → comprobar si existe alguna tarea repetitiva que actualmente recaiga sobre esa persona', queEvitar:'No cuestionar al empleado ni plantear la IA como sustitución automática', ejemplo:'Perfecto. De hecho, puede complementar perfectamente ese trabajo. La idea sería quitarle las consultas repetitivas y dejarle los casos que realmente necesitan intervención.'},
   {key:'Ahora no', estrategia:'No presionar → identificar si es un problema de momento o falta de interés → si pide retomarlo más adelante, clasificar como SEGUIMIENTO', queEvitar:'No crear urgencia artificial', ejemplo:'Entendido, ningún problema. Si ahora no es el momento, lo dejamos aquí. Si más adelante quieres retomarlo, seguimos desde donde lo dejamos.'},
@@ -170,11 +176,10 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [chatHist, setChatHist] = useState<{role:'prospecto'|'ia', text:string, objecion?: typeof OBJECIONES_V4[0], estado?: EstadoCloser}[]>([]);
   const [problemaConcreto, setProblemaConcreto] = useState('gestión de citas fuera de horario');
-  const [planId, setPlanId] = useState<PlanId>('pro');
-  const [fasePago, setFasePago] = useState<'firma'|'activacion'>('firma');
+  const [planId, setPlanId] = useState<PlanId>('whatsapp');
   const plan = PLANES.find(p=>p.id===planId)!;
-  const [importe, setImporte] = useState(String(conIva(790/2)));
-  const [concepto, setConcepto] = useState('Agente IA plan Pro — 50 % del alta (al firmar)');
+  const [importe, setImporte] = useState(String(conIva(297)));
+  const [concepto, setConcepto] = useState('Agente IA para WhatsApp — configuración inicial');
   const [stripeLink, setStripeLink] = useState('');
   const [emailCliente, setEmailCliente] = useState('');
   const [linkGenerado, setLinkGenerado] = useState('');
@@ -592,24 +597,20 @@ export default function App() {
 
   const [generando, setGenerando] = useState(false);
   const [errorPago, setErrorPago] = useState('');
-  const [mensualidad, setMensualidad] = useState('0');
-  // Plan + fase rellenan importe, cuota y concepto (IVA incluido en lo que paga la clínica)
+  const [mensualidad, setMensualidad] = useState(String(conIva(39)));
+  // Como en las condiciones de rociopinedaia.es: al contratar se paga el alta + la 1.ª cuota;
+  // Stripe cobra después la cuota cada mes. Importes con IVA (21 %) incluido.
   useEffect(()=>{
-    setImporte(String(conIva(plan.alta/2)));
-    setMensualidad(fasePago==='firma' ? '0' : String(conIva(plan.cuota)));
-    setConcepto(`Agente IA plan ${plan.nombre} — ${fasePago==='firma' ? '50 % del alta (al firmar)' : '50 % del alta + cuota mensual (al activar)'}`);
-  },[planId, fasePago]);
-  const mensajePago = fasePago==='firma'
-    ? `Perfecto${contacto ? ' ' + contacto : ''}. Os confirmo el plan ${plan.nombre} para ${selectedLead?.nombre || 'la clínica'}: ${euro(plan.cuota)} €/mes + IVA y ${euro(plan.alta)} € + IVA de alta, con permanencia mínima de 3 meses. El consumo de WhatsApp lo factura Meta directamente a la clínica.
+    setImporte(String(conIva(plan.alta)));
+    setMensualidad(String(conIva(plan.cuota)));
+    setConcepto(`${plan.nombre} — configuración inicial`);
+  },[planId]);
+  const mensajePago = `Perfecto${contacto ? ', ' + contacto : ''}. Os confirmo el ${plan.nombre} para ${selectedLead?.nombre || 'la clínica'}: ${euro(plan.alta)} € + IVA de alta y ${euro(plan.cuota)} €/mes + IVA. Sin permanencia: se cancela avisando con 30 días. ${planId==='voz' ? 'Los minutos de llamada los factura el proveedor de telefonía a la clínica.' : 'El consumo de WhatsApp lo factura Meta directamente a la clínica (normalmente entre 20 y 70 € al mes).'}
 
-Para empezar, este es el enlace del 50 % del alta (${euro(Number(importe))} € con IVA):
+Este es el enlace para empezar: alta + primera cuota (${euro(conIva(plan.alta + plan.cuota))} € con IVA). Después, la cuota se cobra cada mes:
 ${linkGenerado || '[ENLACE DE PAGO]'}
 
-En cuanto esté pagado, os mando el contrato y fijamos la reunión de 45 minutos para recoger tratamientos, precios y horarios. Lo tendréis funcionando en ${plan.plazo}.`
-    : `${contacto ? contacto + ', el' : 'El'} agente ya está funcionando en ${selectedLead?.nombre || 'la clínica'}. Este es el enlace del 50 % restante del alta junto con la primera cuota del plan ${plan.nombre} (${euro(conIva(plan.cuota))} €/mes con IVA, que se renueva cada mes):
-${linkGenerado || '[ENLACE DE PAGO]'}
-
-Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`;
+En cuanto esté pagado os mando el contrato y el agente estará funcionando en ${PLAZO}. Para recoger tratamientos, precios y horarios necesito 45 minutos con vosotras: ¿qué día os viene bien?`;
 
   const generarLink = async () => {
     setErrorPago('');
@@ -1121,12 +1122,12 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                 <div className="grid grid-cols-3 gap-2">
                   {PLANES.map(p=>(
                     <button key={p.id} onClick={()=>setPlanId(p.id)} className={`p-2 rounded-lg border text-left ${planId===p.id ? 'bg-[#c6ff00]/15 border-[#c6ff00]/50' : 'bg-black border-white/10'}`}>
-                      <div className="font-bold text-[11px]">{p.nombre}</div>
+                      <div className="font-bold text-[11px]">{p.corto}</div>
                       <div className="text-[10px] text-white/60">{p.cuota} €/mes</div>
                     </button>
                   ))}
                 </div>
-                <div className="text-[10px] text-white/40 mt-2">{plan.para}. Por defecto, Pro.</div>
+                <div className="text-[10px] text-white/40 mt-2">{plan.nombre}: {euro(plan.alta)} € de alta + {plan.cuota} €/mes, + IVA. Por defecto, WhatsApp.</div>
               </div>
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
                 <div className="flex items-center gap-2 mb-3"><Brain size={16} className="text-[#c6ff00]"/><span className="font-display font-bold text-sm">CLOSER IA V4 • ACTIVACIÓN</span></div>
@@ -1227,27 +1228,23 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   <div className="grid grid-cols-3 gap-2">
                   {PLANES.map(p=>(
                     <button key={p.id} onClick={()=>setPlanId(p.id)} className={`text-left p-3 rounded-xl border ${planId===p.id ? 'bg-[#c6ff00]/15 border-[#c6ff00]/50' : 'bg-black border-white/10'}`}>
-                      <div className="font-bold text-[12px]">{p.nombre}{p.id==='pro' ? ' ★' : ''}</div>
-                      <div className="text-[11px] text-white/70">{p.cuota} €/mes · alta {euro(p.alta)} €</div>
+                      <div className="font-bold text-[12px]">{p.corto}{p.id==='whatsapp' ? ' ★' : ''}</div>
+                      <div className="text-[11px] text-white/70">alta {euro(p.alta)} € · {p.cuota} €/mes</div>
                       <div className="text-[10px] text-white/40">+ IVA · {p.para}</div>
                     </button>
                   ))}
                 </div>
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <button onClick={()=>setFasePago('firma')} className={`py-2 rounded-lg text-[11px] font-bold ${fasePago==='firma' ? 'bg-white text-black' : 'bg-black border border-white/10 text-white/60'}`}>1.º PAGO · AL FIRMAR (50 % alta)</button>
-                    <button onClick={()=>setFasePago('activacion')} className={`py-2 rounded-lg text-[11px] font-bold ${fasePago==='activacion' ? 'bg-white text-black' : 'bg-black border border-white/10 text-white/60'}`}>2.º PAGO · AL ACTIVAR (50 % + cuota)</button>
-                  </div>
-                  <div className="text-[10px] text-white/40 mt-2">Importes con IVA incluido (21 %). {fasePago==='firma' ? 'La cuota mensual empieza en el 2.º pago, cuando el agente ya funciona.' : 'Desde este pago, Stripe cobra la cuota cada mes.'} El consumo de WhatsApp lo paga la clínica a Meta.</div>
+                  <div className="text-[10px] text-white/40 mt-2">Un solo enlace: alta + primera cuota al contratar (como en las condiciones de tu web). Después Stripe cobra la cuota cada mes, sin permanencia. Importes con IVA (21 %) incluido.</div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-4">
-                  <div><label className="text-[11px] text-white/50">IMPORTE (€) * editable</label><input value={importe} onChange={e=>setImporte(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm font-bold"/></div>
+                  <div><label className="text-[11px] text-white/50">ALTA CON IVA (€) * editable</label><input value={importe} onChange={e=>setImporte(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm font-bold"/></div>
                   <div><label className="text-[11px] text-white/50">EMAIL CLIENTE</label><input value={emailCliente} onChange={e=>setEmailCliente(e.target.value)} placeholder="cliente@empresa.com" className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div>
                   <div className="md:col-span-2"><label className="text-[11px] text-white/50">CONCEPTO * editable</label><input value={concepto} onChange={e=>setConcepto(e.target.value)} className="mt-1 w-full bg-black border border-[#c6ff00]/30 rounded-xl px-3 py-3 text-sm"/></div>
                   <div className="md:col-span-2"><label className="text-[11px] text-white/50">LINK STRIPE PROPIO (opcional — si lo dejas vacío se crea un pago automático)</label><div className="mt-1 flex gap-2"><div className="flex items-center px-3 bg-white/10 rounded-xl border border-white/10"><Link2 size={14}/></div><input value={stripeLink} onChange={e=>setStripeLink(e.target.value)} placeholder="https://buy.stripe.com/..." className="flex-1 bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div><div className="text-[10px] text-white/40 mt-1">Vacío = checkout automático con STRIPE_SECRET_KEY</div></div>
                 </div>
 
-                <div className="mt-3"><label className="text-[11px] text-white/50">MENSUALIDAD € (0 = solo pago único)</label><input value={mensualidad} onChange={e=>setMensualidad(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div>
+                <div className="mt-3"><label className="text-[11px] text-white/50">CUOTA MENSUAL CON IVA € (la 1.ª se cobra con el alta; 0 = solo pago único)</label><input value={mensualidad} onChange={e=>setMensualidad(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-xl px-3 py-3 text-sm"/></div>
                 <button onClick={generarLink} disabled={generando} className="mt-5 w-full disabled:opacity-50 bg-[#c6ff00] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Zap size={16}/> {generando ? 'CREANDO PAGO...' : 'GENERAR LINK DE PAGO STRIPE'}</button>
                 {errorPago && <div className="mt-2 text-[11px] text-red-400 flex items-center gap-1"><AlertTriangle size={12}/> {errorPago}</div>}
 
@@ -1266,15 +1263,16 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
 
             <div className="col-span-12 lg:col-span-5 space-y-4">
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-                <div className="font-bold text-sm mb-3">QUÉ INCLUYE EL PLAN {plan.nombre.toUpperCase()} ({plan.plazo})</div>
+                <div className="font-bold text-sm mb-3">QUÉ INCLUYE: {plan.nombre.toUpperCase()} (funcionando en {PLAZO})</div>
                 <div className="space-y-2 text-[12px]">
-                  {[...plan.incluye, 'Permanencia mínima 3 meses'].map(i=>(
+                  {[...plan.incluye, 'Sin permanencia: se cancela avisando con 30 días'].map(i=>(
                     <div key={i} className="flex gap-2"><CheckCircle2 size={14} className="text-[#c6ff00] mt-0.5"/><span>{i}</span></div>
                   ))}
                 </div>
+                <div className="mt-3 text-[11px] text-white/50">No incluye: {plan.noIncluye.join(' · ')}</div>
                 <div className="mt-4 p-3 rounded-xl bg-[#c6ff00]/10 border border-[#c6ff00]/20 text-[11px]">
                   <div className="font-bold text-[#c6ff00]">QUÉ PASA DESPUÉS DEL PAGO</div>
-                  <div className="mt-1 text-white/70 leading-relaxed">1. Paga el 50 % del alta → contrato + encargo de tratamiento de datos (RGPD)<br/>2. Reunión de información (45 min) y alta en Meta de su WhatsApp<br/>3. Montaje y pruebas: {plan.plazo}<br/>4. Al activar: 50 % restante + cuota de {plan.cuota} €/mes + IVA ({euro(conIva(plan.cuota))} €), cada mes<br/>5. Dos semanas de ajuste fino</div>
+                  <div className="mt-1 text-white/70 leading-relaxed">1. Paga alta + 1.ª cuota ({euro(conIva(plan.alta + plan.cuota))} € con IVA) → contrato + encargo de tratamiento de datos (RGPD)<br/>2. Reunión de información (45 min){planId!=='voz' ? ' y alta en Meta de su WhatsApp' : ''}<br/>3. Montaje y pruebas: {PLAZO}<br/>4. Cuota de {plan.cuota} €/mes + IVA ({euro(conIva(plan.cuota))} €) cada mes, sin permanencia<br/>5. Cambios o funciones nuevas después de la entrega: se presupuestan aparte</div>
                 </div>
               </div>
 
