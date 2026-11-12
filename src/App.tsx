@@ -58,6 +58,8 @@ const OBJECIONES_V4 = [
   {key:'No necesito IA', estrategia:'No discutir → entender si realmente no existe una necesidad o si simplemente no quiere utilizar IA → si no hay necesidad, cerrar', queEvitar:'No intentar convencer de que necesita IA', ejemplo:'Perfecto, lo entiendo. Al final lo importante no es utilizar IA por utilizarla, sino que resuelva un problema real. Si ahora mismo no tenéis esa necesidad, no tendría sentido añadir nada.'},
   {key:'Ya tengo a alguien', estrategia:'Validar → diferenciar sustitución de apoyo → comprobar si existe alguna tarea repetitiva que actualmente recaiga sobre esa persona', queEvitar:'No cuestionar al empleado ni plantear la IA como sustitución automática', ejemplo:'Perfecto. De hecho, puede complementar perfectamente ese trabajo. La idea sería quitarle las consultas repetitivas y dejarle los casos que realmente necesitan intervención.'},
   {key:'Ahora no', estrategia:'No presionar → identificar si es un problema de momento o falta de interés → si pide retomarlo más adelante, clasificar como SEGUIMIENTO', queEvitar:'No crear urgencia artificial', ejemplo:'Entendido, ningún problema. Si ahora no es el momento, lo dejamos aquí. Si más adelante quieres retomarlo, seguimos desde donde lo dejamos.'},
+  {key:'Ya usamos Booksy / agenda', estrategia:'Validar → preguntar dónde hace la clienta las dudas de antes de reservar → preguntar quién las contesta en cabina → aclarar que el agente no sustituye su agenda', queEvitar:'No criticar su agenda ni decir que deben cambiarla. No afirmar la conexión con su programa sin comprobarla.', ejemplo:'Genial, entonces la agenda la tenéis resuelta. Solo una pregunta: cuando una clienta duda antes de reservar [tratamiento] (cuánto cuesta, cuántas sesiones, si duele), ¿dónde os lo pregunta, en [plataforma] o por WhatsApp? ¿Y quién le contesta si estáis en cabina? El agente no cambia [plataforma]: contesta esa duda y le manda reservar ahí. ¿Con quién lo podría comentar 10 minutos?'},
+  {key:'Mándalo por email', estrategia:'Aceptar → preguntar qué quiere ver para que el email sea suyo → pedir email y nombre → dejar fijada la siguiente llamada', queEvitar:'No mandar un dosier genérico ni enlaces en el primer email. No colgar sin hora para volver a llamar.', ejemplo:'Claro, te lo mando. Para que no sea un email más: ¿qué te interesa ver, cómo contesta las dudas de [tratamiento] o cómo deja la cita apuntada? ¿A qué email y a nombre de quién? Te lo envío hoy y te llamo pasado mañana para comentarlo 10 minutos. ¿Mejor por la mañana o por la tarde?'},
   {key:'No quiero cambiar nada', estrategia:'Validar → no intentar imponer un cambio → explicar únicamente si existe una mejora que pueda integrarse sin alterar la operativa actual', queEvitar:'No presentar el cambio como obligatorio', ejemplo:'Lo entiendo. Precisamente por eso, si algún día lo valoráis, la idea sería integrarlo en vuestra forma de trabajar sin tener que cambiar todo el sistema.'}
 ];
 
@@ -122,11 +124,11 @@ const ACTIVACION_CHECKS = [
 
 export default function App() {
   const [step, setStep] = useState(1);
-  const [miNombre, setMiNombre] = useState(() => { try { return localStorage.getItem('closer_nombre') || 'Rocío'; } catch { return 'Rocío'; } });
-  const [miAgencia, setMiAgencia] = useState(() => { try { return (()=>{ const v = localStorage.getItem('closer_agencia'); return !v || v === 'Agencia de Agentes IA' ? 'Agencia de automatización' : v; })(); } catch { return 'Agencia de automatización'; } });
+  // Firma siempre "Rocío Pineda" (sin agencia). Migra el valor antiguo "Rocío".
+  const [miNombre, setMiNombre] = useState(() => { try { const v = (localStorage.getItem('closer_nombre') || '').trim(); return !v || v === 'Rocío' ? 'Rocío Pineda' : v; } catch { return 'Rocío Pineda'; } });
   const [miTelefono, setMiTelefono] = useState(() => { try { return localStorage.getItem('closer_telefono') || ''; } catch { return ''; } });
   const [miEmail, setMiEmail] = useState(() => { try { return localStorage.getItem('closer_email') || ''; } catch { return ''; } });
-  useEffect(()=>{ try { localStorage.setItem('closer_nombre', miNombre); localStorage.setItem('closer_agencia', miAgencia); localStorage.setItem('closer_telefono', miTelefono); localStorage.setItem('closer_email', miEmail); } catch {} },[miNombre, miAgencia, miTelefono, miEmail]);
+  useEffect(()=>{ try { localStorage.setItem('closer_nombre', miNombre); localStorage.setItem('closer_telefono', miTelefono); localStorage.setItem('closer_email', miEmail); } catch {} },[miNombre, miTelefono, miEmail]);
 
 
   const [nicho, setNicho] = useState('Clínica de estética');
@@ -154,11 +156,10 @@ export default function App() {
     oportunidad: '',
     angulo: ''
   });
-  const [prospectTab, setProspectTab] = useState<'email'|'whatsapp'|'llamada'|'guion'>('guion');
-  const [guion, setGuion] = useState<string[]>(['','','','']);
+  const [prospectTab, setProspectTab] = useState<'email'|'whatsapp'|'guion'>('guion');
+  const [guion, setGuion] = useState<string[]>(['','','','','']);
   const [emailTpl, setEmailTpl] = useState('');
   const [waTpl, setWaTpl] = useState('');
-  const [callTpl, setCallTpl] = useState('');
   const [vozNombre, setVozNombre] = useState('');
   const [vozEmpresa, setVozEmpresa] = useState('');
   const [vozFallo, setVozFallo] = useState('');
@@ -182,8 +183,6 @@ export default function App() {
   const [seg1Tpl, setSeg1Tpl] = useState('');
   const [seg2Tpl, setSeg2Tpl] = useState('');
   const [calidad, setCalidad] = useState<{ok:boolean; texto:string}[]>([]);
-  const [dmRespTpl, setDmRespTpl] = useState('');
-  const [dmOfertaTpl, setDmOfertaTpl] = useState('');
   const [canal, setCanal] = useState<Canal>('web');
   const [igUsuario, setIgUsuario] = useState('');
   const [igTexto, setIgTexto] = useState('');
@@ -268,35 +267,21 @@ export default function App() {
       tratamiento: tratamientoMsg,
       tratamientoPropio: tratamiento.trim() !== '',
       contacto: contacto.trim() || vozNombre.trim(),
-      firma: { nombre: miNombre, agencia: miAgencia, telefono: miTelefono, email: miEmail },
+      firma: { nombre: miNombre, telefono: miTelefono, email: miEmail },
       canal,
       angulo: analisis.angulo,
     });
-  },[selectedLead, analisis.oportunidad, analisis.angulo, frase2, tratamientoMsg, tratamiento, contacto, vozNombre, miNombre, miAgencia, miTelefono, miEmail, canal]);
+  },[selectedLead, analisis.oportunidad, analisis.angulo, frase2, tratamientoMsg, tratamiento, contacto, vozNombre, miNombre, miTelefono, miEmail, canal]);
 
-  // Guion de preguntas (4 pasos): preguntas de hechos, máximo 3 antes de proponer
-  const guionGenerado = useMemo(()=>{
-    if(!selectedLead) return ['','','',''];
-    const saludo = contacto.trim() ? `Hola, ${contacto.trim()}` : 'Hola';
-    const donde = canal==='instagram' ? 'vuestro perfil' : 'vuestra web';
-    const trat = tratamiento.trim();
-    const gusto = trat ? `me ha llamado la atención lo que ofrecéis de ${trat.toLowerCase()}` : 'me ha gustado mucho lo que hacéis';
-    return [
-      `${saludo}, soy ${miNombre}, de Sevilla. Estuve viendo ${donde} de ${selectedLead.nombre} y ${gusto}. Una curiosidad: ¿las citas os llegan más por WhatsApp, por Instagram o por teléfono?`,
-      `¿Y los mensajes que llegan por la noche o el fin de semana, quién los contesta?`,
-      `¿Cuántos mensajes de esos, más o menos, se quedan sin cita a la semana?`,
-      `Tengo montado un asistente que contesta esos mensajes y da la cita al momento, también de noche y en fin de semana. ¿Te enseño en 10 minutos cómo quedaría con vuestros tratamientos?`,
-    ];
-  },[selectedLead?.id, selectedLead?.nombre, contacto, canal, tratamiento, miNombre]);
+  // Guion de LLAMADA (primer contacto): sale de personalizacion.ts
+  const guionGenerado = useMemo(()=> mensajes ? mensajes.guion : ['','','','',''],[mensajes]);
   useEffect(()=>{ setGuion(guionGenerado); },[guionGenerado]);
+  const textoGuion = mensajes ? `Guion de llamada: ${selectedLead?.nombre || ''}\n\n${guion.map((b,i)=>`${mensajes.guionTitulos[i] || ''}\n${b}`).join('\n\n')}\n\nOBJECIONES\n${mensajes.objBooksy}\n\n${mensajes.objEmail}` : '';
 
   useEffect(()=>{
     if(!mensajes) return;
     setEmailTpl(mensajes.email);
-    setWaTpl(mensajes.dm);
-    setDmRespTpl(mensajes.dmSiResponde);
-    setDmOfertaTpl(mensajes.dmOferta);
-    setCallTpl(mensajes.llamada);
+    setWaTpl(mensajes.whatsapp);
     setSeg1Tpl(mensajes.seguimiento1);
     setSeg2Tpl(mensajes.seguimiento2);
     setCalidad(mensajes.calidad);
@@ -507,6 +492,8 @@ export default function App() {
     // orden especifico para matching
     if(lower.includes('no me contact') || lower.includes('no contactes')) return OBJECIONES_V4.find(o=>o.key==='No me contactes más')!;
     if(lower.includes('no me interesa')) return OBJECIONES_V4.find(o=>o.key==='No me interesa')!;
+    if(/booksy|treatwell|fresha|agenda|programa de citas|ya tenemos (un )?(programa|sistema)|nos va bien/.test(lower)) return OBJECIONES_V4.find(o=>o.key==='Ya usamos Booksy / agenda')!;
+    if(/(m[aá]nd|env[ií])[a-z]*(lo|melo|noslo)?\s*(por|al)\s*(email|e-mail|mail|correo)|por (email|correo) mejor/.test(lower)) return OBJECIONES_V4.find(o=>o.key==='Mándalo por email')!;
     if(lower.includes('me lo pienso') || lower.includes('lo pienso')) return OBJECIONES_V4.find(o=>o.key==='Me lo pienso')!;
     if(lower.includes('cuanto cuesta') || lower.includes('cuánto cuesta') || lower.includes('precio') || lower.includes('coste') || lower.includes('cuesta')) return OBJECIONES_V4.find(o=>o.key==='¿Cuánto cuesta?')!;
     if(lower.includes('prefiero human') || lower.includes('persona real')) return OBJECIONES_V4.find(o=>o.key==='Prefiero humanos')!;
@@ -539,7 +526,7 @@ export default function App() {
     }
     const precioVisto = selectedLead?.ficha?.precio;
     const retorno = precioVisto ? `Con ${precioVisto.tratamiento} a ${precioVisto.euros} €, se paga con ${Math.ceil(plan.cuota / precioVisto.euros)} citas al mes. ` : '';
-    const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto).replace(/\[plan\]/g, plan.nombre).replace(/\[cuota\]/g, euro(plan.cuota)).replace(/\[alta\]/g, euro(plan.alta)).replace(/\[retorno\]/g, retorno) : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
+    const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto).replace(/\[plan\]/g, plan.nombre).replace(/\[cuota\]/g, euro(plan.cuota)).replace(/\[alta\]/g, euro(plan.alta)).replace(/\[retorno\]/g, retorno).replace(/\[tratamiento\]/g, tratamientoMsg).replace(/\[plataforma\]/g, (selectedLead?.ficha?.plataforma && selectedLead.ficha.plataforma!=='reserva integrada') ? selectedLead.ficha.plataforma : 'vuestra agenda') : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
 
     setChatHist(prev=>[
       ...prev,
@@ -681,7 +668,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
             {[
               {n:1, label:'BUSCADOR', sub:'Leads reales'},
               {n:2, label:'ANALIZADOR', sub:'Web + Instagram'},
-              {n:3, label:'PROSPECCIÓN', sub:'Email/WA/Voz'},
+              {n:3, label:'PROSPECCIÓN', sub:'Llamada/WA/Email'},
               {n:4, label:'CLOSER V4', sub:'Objeciones IA'},
               {n:5, label:'PAGO', sub:'Stripe real'},
               {n:6, label:'HISTORIAL', sub: tocanHoy ? `${tocanHoy} toca hoy` : 'Seguimientos'},
@@ -945,12 +932,12 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                 </div>
 
                 <div className="mt-4">
-                  <label className="text-[11px] text-white/50">GANCHO: DATO SUYO (WEB O INSTAGRAM) + QUÉ LE PASA A SU CLIENTE (auto + editable; entra en el mensaje)</label>
+                  <label className="text-[11px] text-white/50">ESCENA PRINCIPAL: día y hora + lo que vive su clienta, con un dato suyo (auto + editable; entra en la llamada, el WhatsApp y el email)</label>
                   <textarea value={analisis.oportunidad} onChange={e=>setAnalisis({...analisis, oportunidad:e.target.value})} className="mt-1 w-full h-24 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00]"/>
                 </div>
 
                 <div className="mt-3">
-                  <label className="text-[11px] text-white/50">SEGUNDO DATO SUYO (auto + editable; va en el email y en el seguimiento)</label>
+                  <label className="text-[11px] text-white/50">SEGUNDA ESCENA (auto + editable; va en el seguimiento)</label>
                   <textarea value={frase2} onChange={e=>setFrase2(e.target.value)} placeholder="Escribe aquí otro fallo concreto que hayas visto en su web" className="mt-1 w-full h-20 bg-black border border-white/15 rounded-xl p-3 text-[12px] outline-none focus:border-[#c6ff00]"/>
                 </div>
 
@@ -968,10 +955,9 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
           <div className="grid grid-cols-12 gap-5">
             <div className="col-span-12 lg:col-span-7 space-y-4">
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 grid grid-cols-2 gap-3">
-                <div><label className="text-[11px] text-white/50">TU NOMBRE (firma)</label><input value={miNombre} onChange={e=>setMiNombre(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
-                <div><label className="text-[11px] text-white/50">TU AGENCIA</label><input value={miAgencia} onChange={e=>setMiAgencia(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
+                <div><label className="text-[11px] text-white/50">TU NOMBRE (firma: Rocío Pineda)</label><input value={miNombre} onChange={e=>setMiNombre(e.target.value)} className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
                 <div><label className="text-[11px] text-white/50">TU TELÉFONO (firma del email)</label><input value={miTelefono} onChange={e=>setMiTelefono(e.target.value)} placeholder="Opcional" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
-                <div><label className="text-[11px] text-white/50">TU EMAIL (firma del email)</label><input value={miEmail} onChange={e=>setMiEmail(e.target.value)} placeholder="Opcional" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
+                <div><label className="text-[11px] text-white/50">TU EMAIL (no va en el 1.er email: sin enlaces)</label><input value={miEmail} onChange={e=>setMiEmail(e.target.value)} placeholder="Opcional" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
                 <div className="col-span-2"><label className="text-[11px] text-white/50">NOMBRE DE LA PERSONA A LA QUE ESCRIBES (dueña, gerente...)</label><input value={contacto} onChange={e=>setContacto(e.target.value)} placeholder="Opcional, pero sube mucho la respuesta: búscalo en su web, Instagram o Google" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
               </div>
 
@@ -987,10 +973,9 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden">
                 <div className="flex border-b border-white/10">
                   {[
-                    {id:'guion', label:'GUION', icon: Target},
-                    {id:'email', label:'EMAIL', icon: Mail},
-                    {id:'whatsapp', label:'DM / WHATSAPP', icon: MessageSquare},
-                    {id:'llamada', label:'LLAMADA', icon: Phone},
+                    {id:'guion', label:'GUION LLAMADA', icon: Phone},
+                    {id:'whatsapp', label:'WHATSAPP (tras el sí)', icon: MessageSquare},
+                    {id:'email', label:'EMAIL (tras el sí)', icon: Mail},
                   ].map(t=>{
                     const Icon = t.icon;
                     return (
@@ -1003,45 +988,33 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                 <div className="p-4">
                   {prospectTab==='guion' && (
                     <div className="space-y-3">
-                      <div className="text-[11px] text-white/60 leading-relaxed">Conversación por preguntas. Envía <b>solo el paso 1</b> y espera respuesta. Pregunta por <b>hechos</b>, no por opiniones. Máximo 3 preguntas antes de proponer.</div>
-                      {[
-                        'PASO 1 · APERTURA: algo que viste + una pregunta de hecho',
-                        'PASO 2 · FUERA DE HORARIO (cuando conteste al paso 1)',
-                        'PASO 3 · CUANTIFICAR (cuántos se pierden)',
-                        'PASO 4 · PROPUESTA CONCRETA Y PEQUEÑA',
-                      ].map((titulo, i)=>(
+                      <div className="text-[11px] text-white/60 leading-relaxed">Primer contacto <b>por teléfono</b>. Di cada bloque y <b>calla</b>: que el problema lo diga ella. WhatsApp y email solo después de un <b>sí</b>.</div>
+                      {(mensajes?.guionTitulos || []).map((titulo, i)=>(
                         <div key={i}>
                           <div className="text-[10px] text-white/40 mb-1">{titulo}</div>
-                          <textarea value={guion[i]} onChange={e=>setGuion(g=>g.map((x,j)=>j===i ? e.target.value : x))} className={`w-full ${i===0 ? 'h-[130px]' : 'h-[80px]'} bg-black border border-white/10 rounded-xl p-3 text-[13px] leading-relaxed outline-none focus:border-white/20`}/>
-                          <button onClick={()=>copy(guion[i])} className={`mt-1 w-full font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 text-[12px] ${i===0 ? 'bg-[#c6ff00] text-black font-black' : 'bg-white/10 border border-white/15'}`}><Copy size={12}/> COPIAR PASO {i+1}</button>
+                          <textarea value={guion[i] || ''} onChange={e=>setGuion(g=>g.map((x,j)=>j===i ? e.target.value : x))} className={`w-full ${i===0 || i===1 ? 'h-[130px]' : 'h-[80px]'} bg-black border border-white/10 rounded-xl p-3 text-[13px] leading-relaxed outline-none focus:border-white/20`}/>
                         </div>
                       ))}
-                      <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-[11px] text-amber-200">Si en el paso 2 te dicen que lo contestan siempre al momento: no insistas. Despídete bien y pasa a la siguiente clínica.</div>
+                      <div className="text-[10px] text-white/40 pt-2">OBJECIONES EN LA LLAMADA</div>
+                      {[mensajes?.objBooksy || '', mensajes?.objEmail || ''].map((o, i)=>(
+                        <div key={i} className="rounded-xl bg-black border border-white/10 p-3 text-[12px] leading-relaxed whitespace-pre-wrap">{o}</div>
+                      ))}
+                      <button onClick={()=>copy(textoGuion)} className="w-full bg-[#c6ff00] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR GUION COMPLETO</button>
+                      <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-[11px] text-amber-200">Si en la apertura te dicen que lo contestan siempre al momento: no insistas. Despídete bien y pasa a la siguiente clínica.</div>
                     </div>
                   )}
                   {prospectTab==='email' && (
                     <div className="space-y-3">
+                      <div className="text-[10px] text-white/40">SOLO TRAS UN SÍ O UN «MÁNDAMELO POR EMAIL» · corto y sin enlaces</div>
                       <textarea value={emailTpl} onChange={e=>setEmailTpl(e.target.value)} className="w-full h-[320px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
                       <button onClick={()=>copy(emailTpl)} className="w-full bg-white text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR EMAIL</button>
                     </div>
                   )}
                   {prospectTab==='whatsapp' && (
                     <div className="space-y-3">
-                      <div className="text-[10px] text-white/40">1.º MENSAJE · un fallo suyo + un consejo que pueden aplicar solos. Sin vender nada.</div>
-                      <textarea value={waTpl} onChange={e=>setWaTpl(e.target.value)} className="w-full h-[170px] bg-black border border-white/10 rounded-xl p-4 text-[13px] leading-relaxed outline-none focus:border-white/20"/>
-                      <button onClick={()=>copy(waTpl)} className={`w-full font-black py-3 rounded-xl flex items-center justify-center gap-2 ${waTpl.length <= DM_MAX ? 'bg-[#25D366] text-black' : 'bg-amber-400 text-black'}`}><Copy size={14}/> COPIAR 1.º DM ({waTpl.length}/{DM_MAX} caracteres)</button>
-                      <div className="text-[10px] text-white/40 pt-2">2.º MENSAJE · si responde: pregunta con curiosidad, que te cuenten su problema</div>
-                      <textarea value={dmRespTpl} onChange={e=>setDmRespTpl(e.target.value)} className="w-full h-[150px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
-                      <button onClick={()=>copy(dmRespTpl)} className="w-full bg-white/10 border border-white/15 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 text-[12px]"><Copy size={12}/> COPIAR RESPUESTA</button>
-                      <div className="text-[10px] text-white/40 pt-2">3.º MENSAJE · solo si te preguntan a qué te dedicas: la revisión de 15 min</div>
-                      <textarea value={dmOfertaTpl} onChange={e=>setDmOfertaTpl(e.target.value)} className="w-full h-[150px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
-                      <button onClick={()=>copy(dmOfertaTpl)} className="w-full bg-white/10 border border-white/15 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 text-[12px]"><Copy size={12}/> COPIAR OFERTA</button>
-                    </div>
-                  )}
-                  {prospectTab==='llamada' && (
-                    <div className="space-y-3">
-                      <textarea value={callTpl} onChange={e=>setCallTpl(e.target.value)} className="w-full h-[260px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
-                      <button onClick={()=>copy(callTpl)} className="w-full bg-[#c6ff00] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR GUION LLAMADA</button>
+                      <div className="text-[10px] text-white/40">SOLO SI EN LA LLAMADA TE HAN DICHO QUE SÍ · escena suya + una pregunta. Ajusta la hora que acordasteis.</div>
+                      <textarea value={waTpl} onChange={e=>setWaTpl(e.target.value)} className="w-full h-[200px] bg-black border border-white/10 rounded-xl p-4 text-[13px] leading-relaxed outline-none focus:border-white/20"/>
+                      <button onClick={()=>copy(waTpl)} className={`w-full font-black py-3 rounded-xl flex items-center justify-center gap-2 ${waTpl.length <= DM_MAX ? 'bg-[#25D366] text-black' : 'bg-amber-400 text-black'}`}><Copy size={14}/> COPIAR WHATSAPP ({waTpl.length}/{DM_MAX} caracteres)</button>
                     </div>
                   )}
                 </div>
@@ -1050,9 +1023,9 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
 
             <div className="col-span-12 lg:col-span-5 space-y-4">
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 space-y-3">
-                <div className="font-bold text-[11px] tracking-widest text-white/60">SEGUIMIENTOS (aportan algo nuevo, no "¿viste mi mensaje?")</div>
+                <div className="font-bold text-[11px] tracking-widest text-white/60">SEGUIMIENTOS TRAS EL SÍ (si deja de contestar; escena nueva, nunca "¿viste mi mensaje?")</div>
                 <div>
-                  <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otro consejo útil, sin pedir nada</div>
+                  <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otra escena suya + dos horas para llamar</div>
                   <textarea value={seg1Tpl} onChange={e=>setSeg1Tpl(e.target.value)} className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-[12px] outline-none"/>
                   <div className="mt-1 grid grid-cols-2 gap-1">
                     <button onClick={()=>copy(seg1Tpl)} className="bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 1</button>
@@ -1074,7 +1047,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                 <input value={contacto} onChange={e=>setContacto(e.target.value)} placeholder="Nombre de la persona (opcional)" className="mb-3 w-full bg-black border border-white/15 rounded-lg px-2 py-2 text-[11px]"/>
                 <div className="flex gap-1 mb-3">
                   {[
-                    {id:'inicial', label:'INICIAL 27s'},
+                    {id:'inicial', label:'TRAS EL SÍ'},
                     {id:'seguimiento', label:'SEGUIMIENTO'},
                     {id:'cierre', label:'CIERRE'},
                   ].map(t=>(
@@ -1093,11 +1066,11 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
               </div>
 
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-                <div className="text-[10px] text-white/40 mb-2">SE GUARDA EN EL HISTORIAL EL MENSAJE DE LA PESTAÑA ABIERTA ({prospectTab==='guion' ? 'PASO 1 DEL GUION' : prospectTab==='email' ? 'EMAIL' : prospectTab==='llamada' ? 'LLAMADA' : canal==='instagram' ? 'DM DE INSTAGRAM' : 'WHATSAPP'})</div>
+                <div className="text-[10px] text-white/40 mb-2">SE GUARDA EN EL HISTORIAL EL MENSAJE DE LA PESTAÑA ABIERTA ({prospectTab==='guion' ? 'LLAMADA' : prospectTab==='email' ? 'EMAIL' : 'WHATSAPP'})</div>
                 <button onClick={()=>{
                   if(!selectedLead) return;
-                  const canalEnvio: CanalEnvio = prospectTab==='email' ? 'email' : prospectTab==='llamada' ? 'llamada' : canal==='instagram' ? 'instagram' : 'whatsapp';
-                  const textoEnviado = prospectTab==='guion' ? guion[0] : prospectTab==='email' ? emailTpl : prospectTab==='llamada' ? callTpl : waTpl;
+                  const canalEnvio: CanalEnvio = prospectTab==='email' ? 'email' : prospectTab==='guion' ? 'llamada' : 'whatsapp';
+                  const textoEnviado = prospectTab==='guion' ? textoGuion : prospectTab==='email' ? emailTpl : waTpl;
                   const yaContactado = (selectedLead.historial||[]).some(e=>e.tipo==='contacto');
                   registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo: yaContactado ? 'nota' : 'contacto', canal: canalEnvio, texto: yaContactado ? `Otro envío:\n${textoEnviado}` : textoEnviado },
                     yaContactado ? {} : { estado:'CONTACTADO', ultimoContacto:new Date().toISOString(), seguimientos:0 });
