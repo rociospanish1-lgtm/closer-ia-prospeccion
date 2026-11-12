@@ -8,6 +8,12 @@
 // - La clínica detecta sola el problema mediante preguntas; no se lo señalamos nosotros.
 // - Cero lenguaje de anuncio, nada de "solución", "revolucionario" ni cifras o porcentajes inventados.
 // - Firma: "Rocío Pineda", sin nombre de agencia.
+// - En lo escrito solo se cuenta la escena del problema: nunca la solución técnica ni nombres de
+//   herramientas (la solución se cuenta en la llamada o la demo).
+// - La fuente se nombra igual que el dato: "vuestra web" o "vuestro Instagram", nunca mezcladas.
+// - Nada de "otra vez" ni "lo que hablamos" si no hay un toque anterior registrado.
+// - Todo mensaje termina con una pregunta fácil de contestar.
+// - Mensajes escritos solo si el prospecto "pidió info"; si no, Closer muestra el guion de llamada.
 import type { IgFicha } from './instagram';
 
 export interface Ficha {
@@ -90,8 +96,10 @@ function momentos(f?: Ficha) {
 const cuandoAbren = (f?: Ficha) => (f && !f.abreDomingo ? 'el lunes' : 'que abráis');
 
 // Primera oferta, bono o descuento publicado (web o Instagram), recortada para que quepa en una frase
-export function ofertaCorta(lead: DatosLead): string {
-  const bruta = lead.ficha?.ofertas?.[0] || lead.ig?.ofertas?.[0]?.texto || '';
+export function ofertaCorta(lead: DatosLead, fuente?: Canal): string {
+  const web = lead.ficha?.ofertas?.[0] || '';
+  const ig = lead.ig?.ofertas?.[0]?.texto || '';
+  const bruta = fuente === 'web' ? web : fuente === 'instagram' ? ig : fuente === 'google' ? '' : web || ig;
   let t = bruta.replace(/…/g, ' ').replace(/\s+/g, ' ').trim().replace(/^[^\p{L}\p{N}]+/u, '').replace(/[.:;,!¡\s]+$/, '');
   if (t.length > 70) {
     // "Bonos digitales: elige un tratamiento…" → "Bonos digitales"
@@ -109,18 +117,27 @@ export function ofertaCorta(lead: DatosLead): string {
   return t;
 }
 
-// Dato real que se cita en voz alta en la llamada ("he visto que…")
-function anclaDato(lead: DatosLead, trat: string, tratamientoPropio: boolean): string {
+// Dato real que se cita en voz alta en la llamada ("he visto…"). Sale de la MISMA fuente que la escena.
+function anclaDato(lead: DatosLead, trat: string, tratamientoPropio: boolean, fuente: Canal): string {
+  const of = ofertaCorta(lead, fuente);
+  if (fuente === 'instagram' && lead.ig) {
+    const ig = lead.ig;
+    if (of) return `he visto en vuestro Instagram «${of}»`;
+    if (ig.precio) return `he visto en vuestro Instagram ${ig.precio.tratamiento} a ${ig.precio.euros} €`;
+    if (tratamientoPropio) return `he visto en vuestro Instagram que trabajáis mucho ${trat}`;
+    return 'he estado viendo vuestro Instagram';
+  }
+  if (fuente === 'google' || !lead.ficha) return 'he visto vuestra ficha de Google';
   const f = lead.ficha;
-  const of = ofertaCorta(lead);
-  if (of) return `he visto que tenéis «${of}»`;
-  if (f?.precio) return `he visto en vuestra web ${f.precio.tratamiento} a ${f.precio.euros} €`;
-  if (f?.plataforma && f.plataforma !== 'reserva integrada') return `he visto que las citas las lleváis con ${f.plataforma}`;
-  if (tratamientoPropio) return `he visto que trabajáis mucho ${trat}`;
-  if (f?.horario) return `he visto que abrís ${f.horario}`;
-  if (lead.ig) return `he estado viendo vuestro Instagram, @${lead.ig.usuario}`;
-  return 'he visto vuestra ficha en Google';
+  if (of) return `he visto en vuestra web «${of}»`;
+  if (f.precio) return `he visto en vuestra web ${f.precio.tratamiento} a ${f.precio.euros} €`;
+  if (tratamientoPropio) return `he visto en vuestra web que trabajáis ${trat}`;
+  if (f.horario) return `he visto en vuestra web que abrís ${f.horario}`;
+  return 'he estado viendo vuestra web';
 }
+
+// Cómo se nombra la fuente en el texto
+export const nombreFuente = (fuente: Canal) => (fuente === 'instagram' ? 'vuestro Instagram' : fuente === 'google' ? 'vuestra ficha de Google' : 'vuestra web');
 
 function ganchosWeb(lead: DatosLead, checks: string[], trat: string): Gancho[] {
   const f = lead.ficha;
@@ -137,9 +154,9 @@ function ganchosWeb(lead: DatosLead, checks: string[], trat: string): Gancho[] {
   }
 
   if (f) {
-    const plat = f.plataforma && f.plataforma !== 'reserva integrada' ? f.plataforma : 'vuestra reserva online';
+    const plat = 'la reserva online'; // nunca el nombre de la herramienta
     // Oferta publicada: es el dato más personal. La escena dice lo que pasa al intentar reservarla.
-    const of = ofertaCorta(lead);
+    const of = ofertaCorta(lead, 'web');
     if (of) {
       const despues = f.reservaTipo === 'plataforma'
         ? `antes de entrar en ${plat}, quiere saber si es para ella. Pregunta y la respuesta espera hasta ${abren}.`
@@ -151,21 +168,21 @@ function ganchosWeb(lead: DatosLead, checks: string[], trat: string): Gancho[] {
       g('oferta', true, `${fuera}. Una clienta ve en vuestra web «${of}» y le interesa: ${despues}`);
     }
 
-    if (f.reservaTipo === 'formulario') g('formulario', true, `${fuera}. Una clienta rellena el formulario de ${nom} para ${trat}, pulsa «enviar» y se queda mirando la pantalla: no sabe si tiene hueco hasta ${abren}.`);
+    if (f.reservaTipo === 'formulario') g('formulario', true, `${fuera}. Una clienta rellena el formulario de vuestra web para ${trat}, pulsa «enviar» y se queda mirando la pantalla: no sabe si tiene hueco hasta ${abren}.`);
     else if (f.reservaTipo === 'telefono') g('telefono', true, `${cabina}. Estáis en cabina y el teléfono de ${nom} suena en recepción: es una clienta que quiere ${trat}. Nadie puede cogerlo.`);
-    else if (f.reservaTipo === 'ninguna') g('sin_reserva', true, `${fuera}. Una clienta entra en la web de ${nom} para reservar ${trat}, busca dónde pedir cita y no lo encuentra. Cierra la pestaña.`);
+    else if (f.reservaTipo === 'ninguna') g('sin_reserva', true, `${fuera}. Una clienta entra en vuestra web para reservar ${trat}, busca dónde pedir cita y no lo encuentra. Cierra la pestaña.`);
 
     if (f.chat) g('chat', false, `[tienen ${f.chat} en la web: pruébalo y escribe aquí la escena de lo que ve una clienta que pregunta por ${trat} fuera de horario]`);
     else if (f.whatsappTipo) g('whatsapp_manual', true, f.plataforma
-      ? `${fuera}. Una clienta duda si ${trat} es para ella. En vez de reservar en ${plat}, pulsa vuestro WhatsApp y pregunta. El mensaje se queda en gris hasta ${abren}.`
-      : `${fuera}. Una clienta pulsa el botón de WhatsApp de ${nom} para preguntar por ${trat}. Escribe, envía y el mensaje se queda en gris hasta ${abren}.`);
-    else g('sin_whatsapp', true, `${fuera}. Una clienta tiene una duda sobre ${trat}, busca un WhatsApp en la web de ${nom} y no lo hay. Para preguntar tiene que esperar a llamar ${abren === 'el lunes' ? 'el lunes' : 'en horario'}.`);
+      ? `${fuera}. Una clienta duda si ${trat} es para ella. En vez de usar ${plat}, pulsa el WhatsApp de vuestra web y pregunta. El mensaje se queda en gris hasta ${abren}.`
+      : `${fuera}. Una clienta pulsa el botón de WhatsApp de vuestra web para preguntar por ${trat}. Escribe, envía y el mensaje se queda en gris hasta ${abren}.`);
+    else g('sin_whatsapp', true, `${fuera}. Una clienta tiene una duda sobre ${trat}, busca un WhatsApp en vuestra web y no lo hay. Para preguntar tiene que esperar a llamar ${abren === 'el lunes' ? 'el lunes' : 'en horario'}.`);
 
-    if (f.horario && !f.abreSabado) g('horario', true, `${finde}. Una clienta quiere ${trat}, mira vuestro horario (${f.horario}) y lo deja para el lunes.`);
+    if (f.horario && !f.abreSabado) g('horario', true, `${finde}. Una clienta quiere ${trat}, mira en vuestra web el horario (${f.horario}) y lo deja para el lunes.`);
   } else {
     // Sin ficha (lead antiguo o análisis manual): usamos los checks marcados
-    if (checks.includes('sin_reservas')) g('sin_reserva', true, `${fuera}. Una clienta entra en la web de ${nom} para reservar ${trat}, busca dónde pedir cita y no lo encuentra. Cierra la pestaña.`);
-    if (checks.includes('sin_whatsapp')) g('sin_whatsapp', true, `${fuera}. Una clienta tiene una duda sobre ${trat}, busca un WhatsApp en la web de ${nom} y no lo hay. Para preguntar tiene que esperar a llamar en horario.`);
+    if (checks.includes('sin_reservas')) g('sin_reserva', true, `${fuera}. Una clienta entra en vuestra web para reservar ${trat}, busca dónde pedir cita y no lo encuentra. Cierra la pestaña.`);
+    if (checks.includes('sin_whatsapp')) g('sin_whatsapp', true, `${fuera}. Una clienta tiene una duda sobre ${trat}, busca un WhatsApp en vuestra web y no lo hay. Para preguntar tiene que esperar a llamar en horario.`);
   }
   return lista;
 }
@@ -178,16 +195,16 @@ function ganchosInstagram(lead: DatosLead, trat: string): Gancho[] {
   const lista: Gancho[] = [];
   const g = (id: string, concreto: boolean, frase: string) => lista.push({ id: 'ig_' + id, concreto, frase, origen: 'instagram' });
 
-  const of = !lead.ficha?.ofertas?.length ? ofertaCorta(lead) : '';
+  const of = ofertaCorta(lead, 'instagram');
   if (of) g('oferta', true, `${fuera}. Una clienta ve en vuestro Instagram «${of}», le interesa y os escribe por privado. El mensaje se queda sin leer hasta que alguien abre Instagram.`);
 
   if (ig.citaPorDM) {
-    g('dm', true, `${fuera}. Una clienta ve una publicación vuestra de ${trat} y os escribe por privado, como pedís en ${ig.postsConInfoPorDM >= 2 ? 'las publicaciones' : 'la bio'}. El mensaje se queda sin leer hasta que alguien abre Instagram.`);
+    g('dm', true, `${fuera}. Una clienta ve una publicación vuestra de ${trat} y os escribe por privado, como pedís en vuestro Instagram. El mensaje se queda sin leer hasta que alguien abre Instagram.`);
   }
-  if (ig.enlaceTipo === 'ninguno') g('sin_enlace', true, `${fuera}. Una clienta os descubre en Instagram, quiere ${trat} y busca en la bio dónde reservar. No hay enlace: tiene que escribir y esperar.`);
-  else if (ig.enlaceTipo === 'whatsapp') g('wa', true, `${fuera}. Una clienta pulsa el enlace de vuestra bio, se abre WhatsApp y pregunta por ${trat}. El mensaje se queda en gris hasta ${abren}.`);
-  else if (ig.enlaceTipo === 'reserva' && !ig.citaPorDM) g('reserva', true, `${fuera}. Una clienta ve ${ig.plataforma || 'la reserva online'} en vuestra bio, pero antes de reservar ${trat} quiere saber si duele y cuántas sesiones necesita. Os lo pregunta por privado y espera.`);
-  else if (ig.enlaceTipo === 'agregador') g('agregador', false, `[el enlace de la bio es una página de enlaces: ábrela y escribe aquí la escena de lo que encuentra una clienta que quiere reservar ${trat}]`);
+  if (ig.enlaceTipo === 'ninguno') g('sin_enlace', true, `${fuera}. Una clienta os descubre en vuestro Instagram, quiere ${trat} y busca dónde reservar. No hay enlace: tiene que escribir y esperar.`);
+  else if (ig.enlaceTipo === 'whatsapp') g('wa', true, `${fuera}. Una clienta pulsa el enlace de vuestro Instagram, se abre WhatsApp y pregunta por ${trat}. El mensaje se queda en gris hasta ${abren}.`);
+  else if (ig.enlaceTipo === 'reserva' && !ig.citaPorDM) g('reserva', true, `${fuera}. Una clienta ve el enlace de reserva en vuestro Instagram, pero antes de reservar ${trat} quiere saber si duele y cuántas sesiones necesita. Os lo pregunta por privado y espera.`);
+  else if (ig.enlaceTipo === 'agregador') g('agregador', false, `[el enlace de su Instagram es una página de enlaces: ábrela y escribe aquí la escena de lo que encuentra una clienta que quiere reservar ${trat}]`);
 
   return lista;
 }
@@ -208,7 +225,7 @@ export function ganchos(lead: DatosLead, checks: string[], trat: string, canal: 
   const vistos = new Set<string>();
   lista = lista.filter((x) => {
     const clave = x.id.replace(/^ig_/, '');
-    if (vistos.has(clave)) return false;
+    if (clave !== 'oferta' && vistos.has(clave)) return false;
     vistos.add(clave);
     return true;
   });
@@ -221,23 +238,15 @@ export function ganchos(lead: DatosLead, checks: string[], trat: string, canal: 
   return lista;
 }
 
-// Escena de "después" (con el agente funcionando), siempre con datos suyos
-function escenaDespues(lead: DatosLead, trat: string) {
-  const { fuera2 } = momentos(lead.ficha);
-  const of = ofertaCorta(lead);
-  const que = of ? `por «${of}»` : `por ${trat}`;
-  return `${fuera2}. Una clienta pregunta a ${lead.nombre} ${que}. Antes de dejar el móvil en la mesa ya tiene la respuesta y su cita apuntada.`;
-}
-
 export interface Mensajes {
   guion: string[]; // guion de llamada (primer contacto), 5 bloques
   guionTitulos: string[];
   objBooksy: string;
   objEmail: string;
   llamada: string; // guion completo + objeciones, para copiar de una vez y guardar en el historial
-  whatsapp: string; // tras el "sí" en la llamada
-  email: string; // tras el "sí" (o tras "mándalo por email"); sin enlaces
-  seguimiento1: string; // 3 días sin respuesta tras el "sí"
+  whatsapp: string; // solo si pidió info
+  email: string; // solo si pidió info; sin enlaces
+  seguimiento1: string; // 3 días sin respuesta
   seguimiento2: string; // 7 días, el último
   vozInicial: string;
   vozSeguimiento: string;
@@ -247,6 +256,9 @@ export interface Mensajes {
 
 export const DM_MAX = 500;
 export const PALABRAS_PROHIBIDAS = /soluci[oó]n|revolucion|siguiente nivel|innovador|era digital|optimizar procesos|\bbot\b/i;
+// En lo escrito no se da la solución técnica ni se nombran herramientas
+export const SOLUCION_TECNICA = /\bagente|inteligencia artificial|\bIA\b|automatiz|calendario de reservas|enlace de reservas?|respuestas? autom[aá]tica|mensaje autom[aá]tico|whatsapp business|chatbot|booksy|treatwell|fresha|calendly|manychat|reserva integrada/i;
+const PRESUPONE_CONTACTO = /otra vez|de nuevo|como te (dije|coment)|lo que (hablamos|comentamos)|hemos quedado|te llam[eé] |seg[uú]n hablamos/i;
 
 export function construirMensajes(opts: {
   lead: DatosLead;
@@ -258,28 +270,34 @@ export function construirMensajes(opts: {
   firma: Firma;
   canal?: Canal;
   angulo?: string;
+  contactoPrevio?: boolean; // hay un toque anterior registrado en el historial
+  pidioInfo?: boolean; // marcado "pidió info": solo entonces se generan mensajes escritos
 }): Mensajes {
   const { lead, tratamiento: trat, tratamientoPropio, contacto, firma } = opts;
   const canal: Canal = opts.canal || 'web';
+  const previo = !!opts.contactoPrevio;
+  const pidioInfo = !!opts.pidioInfo;
   const nom = lead.nombre;
   const f = lead.ficha;
+  const ang = opts.angulo || '';
+  // La fuente del dato manda: escena de Instagram → "vuestro Instagram"; de la web → "vuestra web"
+  const fuente: Canal = ang.startsWith('ig_') ? 'instagram' : ang === 'sin_web' ? 'google' : ang ? 'web' : canal;
   const escena = sinPunto(opts.frase) + '.';
   const escena2 = opts.frase2 && opts.frase2.trim() !== opts.frase.trim() ? sinPunto(opts.frase2) + '.' : '';
-  const despues = escenaDespues(lead, trat);
   const firmaNombre = firma.nombre.trim() || FIRMA_NOMBRE;
-  const hola = contacto ? `Hola, ${contacto}.` : 'Hola.';
-  const otros = (f?.tratamientos || lead.ig?.tratamientos || []).filter((t) => t !== trat).slice(0, 2);
+  const holaSoy = `Hola${contacto ? `, ${contacto}` : ''}, soy ${firmaNombre}.`;
+  const otros = (fuente === 'instagram' ? lead.ig?.tratamientos || [] : f?.tratamientos || lead.ig?.tratamientos || []).filter((t) => t !== trat).slice(0, 2);
   const tratsLista = unir([trat, ...otros]);
-  const plataforma = f?.plataforma && f.plataforma !== 'reserva integrada' ? f.plataforma : '';
-  const of = ofertaCorta(lead);
-  const ancla = anclaDato(lead, trat, tratamientoPropio);
+  const of = ofertaCorta(lead, fuente);
+  const ancla = anclaDato(lead, trat, tratamientoPropio, fuente);
+  const donde = nombreFuente(fuente);
 
-  // ---------- GUION DE LLAMADA (primer contacto) ----------
+  // ---------- GUION DE LLAMADA (primer contacto; aquí sí se cuenta la oferta) ----------
   // La pregunta de dolor habla de devolver llamadas: la escena de la llamada es la del teléfono en cabina
   const { cabina } = momentos(f);
   const loQueQuiere = of ? `pregunta por «${of}»` : `quiere ${trat}`;
   const escenaCabina = `${cabina}. Estáis en cabina con una clienta y suena el teléfono de ${nom}: es otra clienta que ${loQueQuiere}. Nadie puede cogerlo.`;
-  const escenaEsCabina = (opts.angulo || '') === 'telefono';
+  const escenaEsCabina = ang === 'telefono';
   const guionTitulos = [
     '1 · APERTURA (dato suyo + la pregunta)',
     '2 · DOLOR (escena + pregunta; que lo diga ella)',
@@ -289,79 +307,92 @@ export function construirMensajes(opts: {
   ];
   const guion = [
     `Hola, ¿hablo con ${contacto || `la responsable de ${nom}`}? Soy ${firmaNombre}, de Sevilla. Estaba mirando ${nom} y ${ancla}. Te robo un minuto con una pregunta: ¿cómo agendáis las citas que os entran cuando estáis en cabina o fuera de horario?\n[escucha sin interrumpir]`,
-    `Te pongo un ejemplo con lo vuestro: ${escenaCabina}\n[pausa]\n¿Os pasa que al devolver la llamada ya no la cogen?\n[si dice que sí] ¿Y en una semana normal, cuántas veces os pasa?\n[apunta su número; no des tú ninguna cifra]${escenaEsCabina ? '' : `\n[si sigue la conversación] Y otra cosa que vi en vuestra web: ${escena} ¿Eso cómo lo lleváis?`}`,
+    `Te pongo un ejemplo con lo vuestro: ${escenaCabina}\n[pausa]\n¿Os pasa que al devolver la llamada ya no la cogen?\n[si dice que sí] ¿Y en una semana normal, cuántas veces os pasa?\n[apunta su número; no des tú ninguna cifra]${escenaEsCabina ? '' : `\n[si sigue la conversación] Y otra cosa que vi en ${donde}: ${escena} ¿Eso cómo lo lleváis?`}`,
     `Yo preparo un agente IA que contesta el WhatsApp de ${nom} cuando estáis en cabina o cerrados, resuelve las dudas de ${tratsLista} y deja la cita apuntada; lo que necesita a una persona os lo pasa a vosotras.`,
     `¿Con quién lo podría comentar 10 minutos?`,
-    `¿Qué te viene mejor para que te llame: mañana a primera hora o mañana después de comer?\n[espera la respuesta]\nHecho. Te mando ahora un WhatsApp con la hora para que lo tengas apuntado. Gracias, ${contacto || 'de verdad'}.`,
+    `¿Qué te viene mejor para que te llame: mañana a primera hora o mañana después de comer?\n[espera la respuesta]\n¿Te mando la hora por WhatsApp a este número?\n[si dice que sí: marca «PIDIÓ INFO» en Closer]`,
   ];
 
   // ---------- OBJECIONES EN LA LLAMADA ----------
-  const agenda = plataforma || 'vuestra agenda';
-  const objBooksy = `«Ya usamos ${plataforma || 'Booksy / una agenda'} y nos va bien.»
-→ "Genial, entonces la agenda la tenéis resuelta. Solo una pregunta: cuando una clienta duda antes de reservar ${trat} (cuánto cuesta, cuántas sesiones, si duele), ¿dónde os lo pregunta, en ${agenda} o por WhatsApp?"
+  const objBooksy = `«Ya usamos Booksy / una agenda y nos va bien.»
+→ "Genial, entonces la agenda la tenéis resuelta. Solo una pregunta: cuando una clienta duda antes de reservar ${trat} (cuánto cuesta, cuántas sesiones, si duele), ¿dónde os lo pregunta, en vuestra agenda o por WhatsApp?"
 [espera]
 "¿Y quién le contesta si estáis en cabina?"
 [espera]
-"El agente no cambia ${agenda}: contesta esa duda y le manda reservar ahí. ¿Con quién lo podría comentar 10 minutos?"`;
+"Lo que os enseñaría no cambia vuestra agenda: es justo esa duda de antes de reservar. ¿Con quién lo podría comentar 10 minutos?"`;
 
   const objEmail = `«Mándamelo por email.»
-→ "Claro, te lo mando. Para que no sea un email más: ¿qué te interesa ver, cómo contesta las dudas de ${trat} o cómo deja la cita apuntada?"
+→ "Claro, te lo mando. Para que no sea un email más: ¿qué te interesa ver, cómo se contestan las dudas de ${trat} o cómo queda la cita apuntada?"
 [espera]
 "¿A qué email y a nombre de quién?"
-[espera]
+[espera — si te lo da, marca «PIDIÓ INFO» en Closer]
 "Te lo envío hoy y te llamo pasado mañana para comentarlo 10 minutos. ¿Mejor por la mañana o por la tarde?"`;
 
   const llamada = `Guion de llamada: ${nom}\n\n${guion.map((b, i) => `${guionTitulos[i]}\n${b}`).join('\n\n')}\n\nOBJECIONES\n${objBooksy}\n\n${objEmail}`;
 
-  // ---------- SEGUIMIENTO TRAS EL "SÍ" ----------
-  // WhatsApp: la escena primero, una pregunta al final para que conteste
-  const whatsapp = `${hola}
-${escena}
-Es lo que hablamos por teléfono. En los 10 minutos que hemos quedado te enseño qué recibiría esa clienta.
-Para prepararlo: ¿cuántas veces os pasa algo así en una semana normal?
-${firmaNombre}`;
+  // ---------- MENSAJES ESCRITOS (solo si pidió info) ----------
+  // Solo la escena del problema + una pregunta fácil. Sin solución, sin herramientas, sin enlaces.
+  const enlace = previo ? 'Es lo que comentamos por teléfono. ' : '';
+  // Pregunta fácil que encaja con lo que pasa en la escena
+  const preguntaPara = (t: string) =>
+    /tel[eé]fono|llama/i.test(t) ? '¿Cuándo le devolvéis la llamada?'
+      : /escribe|pregunta|formulario|mensaje|enviar|privado/i.test(t) ? '¿Cuándo le contestáis a esa clienta?'
+        : '¿Os pasa algo así?';
+  const preguntaEscena = preguntaPara(escena);
+  const preguntaHueco = '¿Qué día os viene bien 10 minutos?';
 
-  // Email: corto y sin enlaces (ni web, ni email en la firma)
-  const email = `Asunto: ${nom}: lo que hablamos de ${trat}
+  const whatsapp = `${holaSoy}
+${escena}
+${enlace}${previo ? preguntaHueco : preguntaEscena}`;
+
+  const asunto = previo ? `${nom}: lo que comentamos de ${trat}` : `${nom}: una clienta de ${trat}`;
+  const email = `Asunto: ${asunto}
 
 ${contacto ? `Hola, ${contacto}` : 'Hola'}:
 
 ${escena}
 
-Es lo que hablamos por teléfono. En la llamada de 10 minutos te enseño cómo le contestaría el agente a esa clienta, con vuestros tratamientos${plataforma ? ` y sin tocar ${plataforma}` : ''}.
+${enlace}${previo ? preguntaHueco : preguntaEscena}
 
-Una pregunta para prepararla: ¿esas consultas os llegan más por WhatsApp, por Instagram o por teléfono?
-
-Un saludo,
 ${firmaNombre}${firma.telefono ? `\n${firma.telefono}` : ''}`;
 
-  // Si no contesta tras el "sí": escena nueva primero (nunca "¿viste mi mensaje?")
-  const seguimiento1 = `${escena2 || despues}
-${escena2 ? 'Es otra de las cosas que quería enseñarte de ' + nom + '.' : 'Es lo que quería enseñarte de ' + nom + '.'} ¿Te llamo el martes a las 10:00 o el miércoles a las 16:00, 10 minutos?
-${firmaNombre}`;
+  // Seguimientos: escena nueva del problema + pregunta (nunca "¿viste mi mensaje?")
+  const seguimiento1 = `${holaSoy}
+${escena2 || escenaCabina}
+${preguntaPara(escena2 || escenaCabina)}`;
 
-  const seguimiento2 = `${despues}
-Es lo que quería enseñarte de ${nom}. No te escribo más; si algún día queréis verlo, me dices y te llamo.
-${firmaNombre}`;
+  const seguimiento2 = `${holaSoy}
+${escena}
+Es el último mensaje que te mando sobre esto. ¿Lo dejamos aquí o te llamo 10 minutos?`;
 
-  // ---------- NOTAS DE VOZ (WhatsApp, tras el "sí") ----------
-  const vozInicial = `Hola ${contacto || ''}, soy ${firmaNombre} [pausa] Te dejo el ejemplo que hablamos [respiración] ${escena} [pausa] Eso es lo que te quiero enseñar en los diez minutos que hemos quedado, con un ejemplo de ${trat} [pausa corta] Para prepararlo, una pregunta: ¿cuántas veces os pasa algo así en una semana normal? Me lo dices por aquí. Gracias.`.replace(/Hola ,/, 'Hola,');
-  const vozSeguimiento = `${escena2 || despues} [pausa] Soy ${firmaNombre}, por lo de ${nom} [respiración] Es lo que quería enseñarte en diez minutos [pausa corta] ¿Te llamo el martes por la mañana o el miércoles por la tarde?`;
-  const vozCierre = `${despues} [pausa] Soy ${firmaNombre} [respiración] Es lo que quería enseñarte de ${nom}. No te escribo más [pausa corta] Si algún día queréis verlo, me dices y te llamo. Gracias por tu tiempo.`;
+  // ---------- NOTAS DE VOZ (WhatsApp, solo si pidió info) ----------
+  const vozInicial = `Hola${contacto ? ' ' + contacto : ''}, soy ${firmaNombre} [pausa] ${escena} [pausa] ${enlace}[respiración] ${previo ? preguntaHueco : preguntaEscena}`;
+  const vozSeguimiento = `Hola${contacto ? ' ' + contacto : ''}, soy ${firmaNombre} [pausa] ${escena2 || escenaCabina} [respiración] ${preguntaPara(escena2 || escenaCabina)}`;
+  const vozCierre = `Hola${contacto ? ' ' + contacto : ''}, soy ${firmaNombre} [pausa] ${escena} [respiración] Es el último mensaje que te mando sobre esto [pausa corta] ¿Lo dejamos aquí o te llamo diez minutos?`;
 
   // ---------- CONTROL DE CALIDAD ----------
   const pendiente = /\[/;
-  const todo = [llamada, whatsapp, email, seguimiento1, seguimiento2, vozInicial, vozSeguimiento, vozCierre].join('\n');
+  const escritos = { WhatsApp: whatsapp, email, 'seguimiento 1': seguimiento1, 'seguimiento 2': seguimiento2, 'voz inicial': vozInicial, 'voz seguimiento': vozSeguimiento, 'voz cierre': vozCierre };
+  const todo = [llamada, ...Object.values(escritos)].join('\n');
   // Los % solo valen si están en la oferta que publican ellos
   const sinOferta = of ? todo.split(of).join('') : todo;
   const prohibida = todo.match(PALABRAS_PROHIBIDAS)?.[0] || (/\d\s?%/.test(sinOferta) ? '%' : '');
-  const datoReal = !!of || !!f?.precio || !!plataforma || tratamientoPropio || !!f?.horario || !!lead.ig;
+  const conSolucion = Object.entries(escritos).map(([k, t]) => [k, t.match(SOLUCION_TECNICA)?.[0]] as const).find(([, m]) => m);
+  const mezcla = Object.entries(escritos).find(([, t]) => /vuestra web/i.test(t) && /vuestro instagram/i.test(t))?.[0];
+  const presupone = previo ? '' : Object.entries(escritos).find(([, t]) => PRESUPONE_CONTACTO.test(t))?.[0];
+  const cuerpoEmail = email.replace(new RegExp(`\\n\\n${firmaNombre}[\\s\\S]*$`), '');
+  const sinPregunta = Object.entries({ ...escritos, email: cuerpoEmail }).find(([, t]) => !/\?\s*$/.test(t.trim()))?.[0];
+  const datoReal = !!of || !!f?.precio || tratamientoPropio || !!f?.horario || !!lead.ig;
   const calidad = [
+    { ok: pidioInfo, texto: pidioInfo ? 'Pidió info: puedes enviar WhatsApp o email' : 'No ha pedido info: solo llamada (los mensajes escritos se desbloquean al marcar «PIDIÓ INFO»)' },
     { ok: true, texto: `Nombre de la clínica: ${nom}` },
-    { ok: datoReal, texto: datoReal ? `Dato real en la apertura: ${ancla.replace(/^he visto (que )?/, '')}` : 'Sin dato real suyo: analiza su web o su Instagram, o escribe un tratamiento que ofrezcan' },
+    { ok: datoReal, texto: datoReal ? `Dato real en la apertura: ${ancla.replace(/^he (visto|estado viendo) /, '')}` : 'Sin dato real suyo: analiza su web o su Instagram, o escribe un tratamiento que ofrezcan' },
     { ok: tratamientoPropio, texto: tratamientoPropio ? `Tratamiento suyo: ${trat}` : 'Sin tratamiento suyo: escribe uno que ofrezcan de verdad' },
     { ok: !pendiente.test(opts.frase) && /\d{1,2}:\d{2}/.test(opts.frase), texto: pendiente.test(opts.frase) ? 'Falta completar la escena del paso 2' : /\d{1,2}:\d{2}/.test(opts.frase) ? 'Escena en presente con día y hora' : 'La escena no tiene día y hora: añádelos en el paso 2' },
-    { ok: canal !== 'instagram' || !!lead.ig, texto: canal === 'instagram' ? (lead.ig ? `Dato sacado de su Instagram (@${lead.ig.usuario})` : 'Citas Instagram sin haber analizado su perfil') : canal === 'web' ? (f ? 'Dato sacado de su web' : 'Dato de su web marcado a mano') : 'Dato sacado de su ficha de Google' },
+    { ok: !mezcla, texto: mezcla ? `El ${mezcla} mezcla «vuestra web» y «vuestro Instagram»` : `Fuente coherente: ${donde}` },
+    { ok: !conSolucion, texto: conSolucion ? `El ${conSolucion[0]} da la solución o nombra una herramienta («${conSolucion[1]}»): quítalo` : 'Lo escrito solo cuenta el problema' },
+    { ok: !presupone, texto: presupone ? `El ${presupone} da por hecho un contacto previo que no está registrado` : previo ? 'Hay un contacto previo registrado' : 'Sin dar por hecho un contacto previo' },
+    { ok: !sinPregunta, texto: sinPregunta ? `El ${sinPregunta} no termina con una pregunta` : 'Todos los mensajes terminan con una pregunta' },
     { ok: !prohibida, texto: prohibida ? `Palabra o cifra a quitar: «${prohibida}»` : 'Sin lenguaje de anuncio ni porcentajes inventados' },
     { ok: !/https?:|www\.|@[\w.-]+\.\w/.test(email), texto: /https?:|www\.|@[\w.-]+\.\w/.test(email) ? 'El email lleva un enlace: quítalo' : 'Email sin enlaces' },
     { ok: whatsapp.length <= DM_MAX, texto: `WhatsApp de ${whatsapp.length} caracteres (máx. ${DM_MAX})` },

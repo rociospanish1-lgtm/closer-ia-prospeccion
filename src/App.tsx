@@ -58,7 +58,7 @@ const OBJECIONES_V4 = [
   {key:'No necesito IA', estrategia:'No discutir → entender si realmente no existe una necesidad o si simplemente no quiere utilizar IA → si no hay necesidad, cerrar', queEvitar:'No intentar convencer de que necesita IA', ejemplo:'Perfecto, lo entiendo. Al final lo importante no es utilizar IA por utilizarla, sino que resuelva un problema real. Si ahora mismo no tenéis esa necesidad, no tendría sentido añadir nada.'},
   {key:'Ya tengo a alguien', estrategia:'Validar → diferenciar sustitución de apoyo → comprobar si existe alguna tarea repetitiva que actualmente recaiga sobre esa persona', queEvitar:'No cuestionar al empleado ni plantear la IA como sustitución automática', ejemplo:'Perfecto. De hecho, puede complementar perfectamente ese trabajo. La idea sería quitarle las consultas repetitivas y dejarle los casos que realmente necesitan intervención.'},
   {key:'Ahora no', estrategia:'No presionar → identificar si es un problema de momento o falta de interés → si pide retomarlo más adelante, clasificar como SEGUIMIENTO', queEvitar:'No crear urgencia artificial', ejemplo:'Entendido, ningún problema. Si ahora no es el momento, lo dejamos aquí. Si más adelante quieres retomarlo, seguimos desde donde lo dejamos.'},
-  {key:'Ya usamos Booksy / agenda', estrategia:'Validar → preguntar dónde hace la clienta las dudas de antes de reservar → preguntar quién las contesta en cabina → aclarar que el agente no sustituye su agenda', queEvitar:'No criticar su agenda ni decir que deben cambiarla. No afirmar la conexión con su programa sin comprobarla.', ejemplo:'Genial, entonces la agenda la tenéis resuelta. Solo una pregunta: cuando una clienta duda antes de reservar [tratamiento] (cuánto cuesta, cuántas sesiones, si duele), ¿dónde os lo pregunta, en [plataforma] o por WhatsApp? ¿Y quién le contesta si estáis en cabina? El agente no cambia [plataforma]: contesta esa duda y le manda reservar ahí. ¿Con quién lo podría comentar 10 minutos?'},
+  {key:'Ya usamos Booksy / agenda', estrategia:'Validar → preguntar dónde hace la clienta las dudas de antes de reservar → preguntar quién las contesta en cabina → aclarar que el agente no sustituye su agenda', queEvitar:'No criticar su agenda ni decir que deben cambiarla. No afirmar la conexión con su programa sin comprobarla.', ejemplo:'Genial, entonces la agenda la tenéis resuelta. Solo una pregunta: cuando una clienta duda antes de reservar [tratamiento] (cuánto cuesta, cuántas sesiones, si duele), ¿dónde os lo pregunta, en vuestra agenda o por WhatsApp? ¿Y quién le contesta si estáis en cabina? Lo que os enseñaría no cambia vuestra agenda: es justo esa duda de antes de reservar. ¿Con quién lo podría comentar 10 minutos?'},
   {key:'Mándalo por email', estrategia:'Aceptar → preguntar qué quiere ver para que el email sea suyo → pedir email y nombre → dejar fijada la siguiente llamada', queEvitar:'No mandar un dosier genérico ni enlaces en el primer email. No colgar sin hora para volver a llamar.', ejemplo:'Claro, te lo mando. Para que no sea un email más: ¿qué te interesa ver, cómo contesta las dudas de [tratamiento] o cómo deja la cita apuntada? ¿A qué email y a nombre de quién? Te lo envío hoy y te llamo pasado mañana para comentarlo 10 minutos. ¿Mejor por la mañana o por la tarde?'},
   {key:'No quiero cambiar nada', estrategia:'Validar → no intentar imponer un cambio → explicar únicamente si existe una mejora que pueda integrarse sin alterar la operativa actual', queEvitar:'No presentar el cambio como obligatorio', ejemplo:'Lo entiendo. Precisamente por eso, si algún día lo valoráis, la idea sería integrarlo en vuestra forma de trabajar sin tener que cambiar todo el sistema.'}
 ];
@@ -88,6 +88,7 @@ interface Lead {
   instagram?: string; // @usuario, si se conoce
   ig?: IgFicha;
   historial?: Evento[];
+  pidioInfo?: boolean; // solo entonces se generan mensajes escritos (WhatsApp, Instagram, email)
 }
 
 interface Analisis {
@@ -200,6 +201,7 @@ export default function App() {
   const registrar = (id: string, ev: Evento, cambios: Partial<Lead> = {}) => {
     setLeads(prev=>prev.map(x=>x.id===id ? {...x, ...cambios, historial:[...(x.historial||[]), ev]} : x));
   };
+  const marcarPidioInfo = (l: Lead, valor: boolean) => registrar(l.id, { fecha:new Date().toISOString(), tipo:'nota', texto: valor ? 'Pidió info: se le pueden enviar mensajes escritos.' : 'Quitada la marca «pidió info».' }, { pidioInfo: valor });
 
   const seleccionar = (l: Lead, paso = 2) => {
     setSelectedId(l.id);
@@ -270,6 +272,8 @@ export default function App() {
       firma: { nombre: miNombre, telefono: miTelefono, email: miEmail },
       canal,
       angulo: analisis.angulo,
+      contactoPrevio: (selectedLead.historial||[]).some(e=>e.tipo==='contacto' || e.tipo==='seguimiento' || e.tipo==='respuesta'),
+      pidioInfo: !!selectedLead.pidioInfo,
     });
   },[selectedLead, analisis.oportunidad, analisis.angulo, frase2, tratamientoMsg, tratamiento, contacto, vozNombre, miNombre, miTelefono, miEmail, canal]);
 
@@ -526,7 +530,7 @@ export default function App() {
     }
     const precioVisto = selectedLead?.ficha?.precio;
     const retorno = precioVisto ? `Con ${precioVisto.tratamiento} a ${precioVisto.euros} €, se paga con ${Math.ceil(plan.cuota / precioVisto.euros)} citas al mes. ` : '';
-    const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto).replace(/\[plan\]/g, plan.nombre).replace(/\[cuota\]/g, euro(plan.cuota)).replace(/\[alta\]/g, euro(plan.alta)).replace(/\[retorno\]/g, retorno).replace(/\[tratamiento\]/g, tratamientoMsg).replace(/\[plataforma\]/g, (selectedLead?.ficha?.plataforma && selectedLead.ficha.plataforma!=='reserva integrada') ? selectedLead.ficha.plataforma : 'vuestra agenda') : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
+    const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto).replace(/\[plan\]/g, plan.nombre).replace(/\[cuota\]/g, euro(plan.cuota)).replace(/\[alta\]/g, euro(plan.alta)).replace(/\[retorno\]/g, retorno).replace(/\[tratamiento\]/g, tratamientoMsg) : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
 
     setChatHist(prev=>[
       ...prev,
@@ -961,6 +965,14 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                 <div className="col-span-2"><label className="text-[11px] text-white/50">NOMBRE DE LA PERSONA A LA QUE ESCRIBES (dueña, gerente...)</label><input value={contacto} onChange={e=>setContacto(e.target.value)} placeholder="Opcional, pero sube mucho la respuesta: búscalo en su web, Instagram o Google" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
               </div>
 
+              {selectedLead && (
+                <div className={`rounded-2xl p-4 border flex items-center gap-3 ${selectedLead.pidioInfo ? 'bg-[#25D366]/10 border-[#25D366]/40' : 'bg-white/[0.04] border-white/10'}`}>
+                  <div className="flex-1 text-[11px] leading-relaxed">{selectedLead.pidioInfo
+                    ? <><b>PIDIÓ INFO</b> · ya puedes enviarle WhatsApp, Instagram o email.</>
+                    : <><b>NO HA PEDIDO INFO</b> · primer contacto por teléfono. Los mensajes escritos se desbloquean cuando te pida información.</>}</div>
+                  <button onClick={()=>marcarPidioInfo(selectedLead, !selectedLead.pidioInfo)} className={`px-3 py-2 rounded-lg text-[11px] font-black ${selectedLead.pidioInfo ? 'bg-white/10 border border-white/15' : 'bg-[#25D366] text-black'}`}>{selectedLead.pidioInfo ? 'QUITAR MARCA' : 'MARCAR «PIDIÓ INFO»'}</button>
+                </div>
+              )}
               {calidad.length > 0 && (
                 <div className={`rounded-2xl border p-4 ${calidad.every(c=>c.ok) ? 'bg-[#c6ff00]/10 border-[#c6ff00]/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
                   <div className="font-bold text-[11px] tracking-widest mb-2">{calidad.every(c=>c.ok) ? 'MENSAJE PERSONALIZADO ✓' : 'MENSAJE POCO PERSONALIZADO: CORRÍGELO ANTES DE ENVIAR'}</div>
@@ -974,8 +986,8 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                 <div className="flex border-b border-white/10">
                   {[
                     {id:'guion', label:'GUION LLAMADA', icon: Phone},
-                    {id:'whatsapp', label:'WHATSAPP (tras el sí)', icon: MessageSquare},
-                    {id:'email', label:'EMAIL (tras el sí)', icon: Mail},
+                    {id:'whatsapp', label:'WHATSAPP / IG', icon: MessageSquare},
+                    {id:'email', label:'EMAIL', icon: Mail},
                   ].map(t=>{
                     const Icon = t.icon;
                     return (
@@ -1003,16 +1015,23 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                       <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-[11px] text-amber-200">Si en la apertura te dicen que lo contestan siempre al momento: no insistas. Despídete bien y pasa a la siguiente clínica.</div>
                     </div>
                   )}
-                  {prospectTab==='email' && (
+                  {prospectTab==='email' && !!selectedLead?.pidioInfo && (
                     <div className="space-y-3">
-                      <div className="text-[10px] text-white/40">SOLO TRAS UN SÍ O UN «MÁNDAMELO POR EMAIL» · corto y sin enlaces</div>
+                      <div className="text-[10px] text-white/40">SOLO PORQUE PIDIÓ INFO · corto, sin enlaces, termina en pregunta</div>
                       <textarea value={emailTpl} onChange={e=>setEmailTpl(e.target.value)} className="w-full h-[320px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
                       <button onClick={()=>copy(emailTpl)} className="w-full bg-white text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR EMAIL</button>
                     </div>
                   )}
-                  {prospectTab==='whatsapp' && (
+                  {(prospectTab==='whatsapp' || prospectTab==='email') && !selectedLead?.pidioInfo && (
                     <div className="space-y-3">
-                      <div className="text-[10px] text-white/40">SOLO SI EN LA LLAMADA TE HAN DICHO QUE SÍ · escena suya + una pregunta. Ajusta la hora que acordasteis.</div>
+                      <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-[11px] text-amber-200">Este prospecto no ha pedido información: nada de mensajes escritos. Llama con este guion y, si te pide info, márcalo arriba con «PIDIÓ INFO».</div>
+                      <div className="rounded-xl bg-black border border-white/10 p-3 text-[12px] leading-relaxed whitespace-pre-wrap">{textoGuion}</div>
+                      <button onClick={()=>copy(textoGuion)} className="w-full bg-[#c6ff00] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR GUION DE LLAMADA</button>
+                    </div>
+                  )}
+                  {prospectTab==='whatsapp' && !!selectedLead?.pidioInfo && (
+                    <div className="space-y-3">
+                      <div className="text-[10px] text-white/40">SOLO PORQUE PIDIÓ INFO · escena del problema + una pregunta. Sin solución ni herramientas.</div>
                       <textarea value={waTpl} onChange={e=>setWaTpl(e.target.value)} className="w-full h-[200px] bg-black border border-white/10 rounded-xl p-4 text-[13px] leading-relaxed outline-none focus:border-white/20"/>
                       <button onClick={()=>copy(waTpl)} className={`w-full font-black py-3 rounded-xl flex items-center justify-center gap-2 ${waTpl.length <= DM_MAX ? 'bg-[#25D366] text-black' : 'bg-amber-400 text-black'}`}><Copy size={14}/> COPIAR WHATSAPP ({waTpl.length}/{DM_MAX} caracteres)</button>
                     </div>
@@ -1022,10 +1041,11 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
             </div>
 
             <div className="col-span-12 lg:col-span-5 space-y-4">
+              {selectedLead?.pidioInfo ? (<>
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 space-y-3">
-                <div className="font-bold text-[11px] tracking-widest text-white/60">SEGUIMIENTOS TRAS EL SÍ (si deja de contestar; escena nueva, nunca "¿viste mi mensaje?")</div>
+                <div className="font-bold text-[11px] tracking-widest text-white/60">SEGUIMIENTOS (si deja de contestar; escena nueva + pregunta, nunca "¿viste mi mensaje?")</div>
                 <div>
-                  <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otra escena suya + dos horas para llamar</div>
+                  <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otra escena suya + una pregunta</div>
                   <textarea value={seg1Tpl} onChange={e=>setSeg1Tpl(e.target.value)} className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-[12px] outline-none"/>
                   <div className="mt-1 grid grid-cols-2 gap-1">
                     <button onClick={()=>copy(seg1Tpl)} className="bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 1</button>
@@ -1065,12 +1085,20 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                 <button onClick={()=>copy(currentScript)} className="mt-3 w-full bg-[#c6ff00] text-black font-black py-2.5 rounded-xl text-[12px] flex items-center justify-center gap-2"><Copy size={14}/> COPIAR PARA CORTASIA</button>
               </div>
 
+              </>) : (
+                <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 text-[11px] text-white/60 leading-relaxed">
+                  <div className="font-bold tracking-widest text-white/60 mb-1">SEGUIMIENTOS Y NOTAS DE VOZ</div>
+                  Bloqueados hasta que el prospecto pida información. Si no contesta al teléfono, vuelve a llamar con el guion a otra hora (a primera hora o después de comer).
+                </div>
+              )}
+
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-                <div className="text-[10px] text-white/40 mb-2">SE GUARDA EN EL HISTORIAL EL MENSAJE DE LA PESTAÑA ABIERTA ({prospectTab==='guion' ? 'LLAMADA' : prospectTab==='email' ? 'EMAIL' : 'WHATSAPP'})</div>
+                <div className="text-[10px] text-white/40 mb-2">SE GUARDA EN EL HISTORIAL EL MENSAJE DE LA PESTAÑA ABIERTA ({!selectedLead?.pidioInfo || prospectTab==='guion' ? 'LLAMADA' : prospectTab==='email' ? 'EMAIL' : canal==='instagram' ? 'INSTAGRAM' : 'WHATSAPP'})</div>
                 <button onClick={()=>{
                   if(!selectedLead) return;
-                  const canalEnvio: CanalEnvio = prospectTab==='email' ? 'email' : prospectTab==='guion' ? 'llamada' : 'whatsapp';
-                  const textoEnviado = prospectTab==='guion' ? textoGuion : prospectTab==='email' ? emailTpl : waTpl;
+                  const escrito = !!selectedLead.pidioInfo && prospectTab!=='guion';
+                  const canalEnvio: CanalEnvio = !escrito ? 'llamada' : prospectTab==='email' ? 'email' : canal==='instagram' ? 'instagram' : 'whatsapp';
+                  const textoEnviado = !escrito ? textoGuion : prospectTab==='email' ? emailTpl : waTpl;
                   const yaContactado = (selectedLead.historial||[]).some(e=>e.tipo==='contacto');
                   registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo: yaContactado ? 'nota' : 'contacto', canal: canalEnvio, texto: yaContactado ? `Otro envío:\n${textoEnviado}` : textoEnviado },
                     yaContactado ? {} : { estado:'CONTACTADO', ultimoContacto:new Date().toISOString(), seguimientos:0 });
