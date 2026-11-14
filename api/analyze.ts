@@ -294,6 +294,175 @@ export function extraerFicha(html: string) {
   };
 }
 
+// ---------- Responsable / decisor ----------
+// Busca en la propia web (inicio, aviso legal, privacidad y página de equipo) quién está detrás:
+// director/a, fundador/a, CEO, gerente, el titular legal y el email de contacto.
+// Solo datos que la clínica publica. El DNI de un autónomo NO se devuelve.
+
+const NOMBRE = String.raw`[A-ZÁÉÍÓÚÑ][a-záéíóúñü]+(?:[ -](?:(?:de|del|la|las|los|y|i) )?[A-ZÁÉÍÓÚÑ][a-záéíóúñü]+){1,3}`;
+const RE_NOMBRE = new RegExp(NOMBRE);
+const RE_DR = new RegExp(String.raw`\b(Dr\.?|Dra\.?|Doctor|Doctora)\s+(${NOMBRE})`, "g");
+const RE_CARGO =
+  /\b(ceo|directora? m[eé]dic[oa]|directora? cl[ií]nic[oa]|directora? general|directora? t[eé]cnic[oa]|directora?|co-?fundadora?|fundadora?|gerente|propietari[oa]|due[ñn][oa]|socio fundador|socia fundadora|administrador[a]? [uú]nic[oa]|responsable de la cl[ií]nica)\b/i;
+const NO_ES_NOMBRE = new Set(
+  ("director directora medico medica clinica clinico dental centro equipo fundador fundadora gerente doctor doctora " +
+    "estetica aviso legal politica nuestro nuestra nuestros nuestras calle avenida plaza servicios tratamientos contacto " +
+    "inicio sobre nosotros quienes somos ceo general socio socia responsable especialista fisioterapia odontologia grado " +
+    "master universidad cookies privacidad sociedad limitada tecnico tecnica salud belleza instituto grupo reserva cita " +
+    "pide llama horario lunes martes miercoles jueves viernes sabado domingo madrid sevilla barcelona valencia malaga")
+    .split(" ")
+);
+
+function nombreValido(n: string) {
+  const palabras = sinAcentos(n).split(/[ -]+/).filter((p) => !["de", "del", "la", "las", "los", "y", "i"].includes(p));
+  return palabras.length >= 2 && palabras.every((p) => p.length >= 2 && !NO_ES_NOMBRE.has(p));
+}
+
+type Persona = { nombre: string; cargo: string; fuente: string };
+export type Responsable = {
+  personas: Persona[];
+  titular: string;
+  tipoTitular: "sociedad" | "autonomo" | "";
+  cif: string;
+  emails: string[];
+  paginas: string[];
+};
+
+// Enlaces internos a aviso legal, privacidad y equipo (uno de cada, el más claro)
+function enlacesClave(html: string, base: string) {
+  const host = new URL(base).hostname.replace(/^www\./, "");
+  const tipos: [string, RegExp][] = [
+    ["aviso legal", /aviso[-_ ]?legal|legal[-_ ]?notice|informacion[-_ ]?legal/],
+    ["equipo", /equipo|quienes[-_ ]?somos|sobre[-_ ]?nosotros|conocenos|nosotros|about|team|profesionales|doctores/],
+    ["privacidad", /privacidad|privacy|proteccion[-_ ]?de[-_ ]?datos/],
+  ];
+  const elegidos: Record<string, string> = {};
+  for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]{0,200}?)<\/a>/gi)) {
+    let abs: URL;
+    try { abs = new URL(m[1], base); } catch { continue; }
+    if (!/^https?:$/.test(abs.protocol) || abs.hostname.replace(/^www\./, "") !== host) continue;
+    const pista = sinAcentos(abs.pathname + " " + m[2].replace(/<[^>]+>/g, " "));
+    for (const [tipo, re] of tipos) {
+      if (!elegidos[tipo] && re.test(pista) && abs.toString() !== base) elegidos[tipo] = abs.toString();
+    }
+  }
+  return Object.entries(elegidos);
+}
+
+async function descargarPagina(url: string, ms: number) {
+  const fin = Date.now() + ms;
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), ms);
+    const r = await fetch(url, { signal: c.signal, redirect: "follow", headers: { "User-Agent": UA_NAVEGADOR, Accept: "text/html,*/*" } });
+    clearTimeout(t);
+    return r.ok ? await r.text() : "";
+  } catch (e: any) {
+    if (e?.name === "AbortError") return "";
+    try { const r = await descargaTolerante(url, fin); return r.status >= 200 && r.status < 300 ? r.html : ""; } catch { return ""; }
+  }
+}
+
+// Quita direcciones ("C/ Isabel la Católica 12") para no confundirlas con nombres de personas
+const RE_CALLE = /\b(c\/|calle|avda\.?|avenida|plaza|pza\.?|paseo|ronda|glorieta|camino|carretera|urbanizaci[oó]n|edificio|centro comercial)\s+[^,\n]{0,50}/gi;
+
+function personasEn(texto: string, fuente: string, salida: Persona[]) {
+  texto = texto.normalize("NFC").replace(RE_CALLE, " ");
+  const lineas = texto.split("\n").map((l) => l.trim()).filter(Boolean);
+  lineas.forEach((linea, i) => {
+    if (linea.length > 220) return;
+    const cargo = linea.match(RE_CARGO);
+    if (!cargo) return;
+    // Nombre en la misma línea o en la de al lado (tarjetas de equipo: "Ana López" / "Directora médica")
+    const candidatas = [linea, lineas[i - 1] || "", lineas[i + 1] || ""];
+    for (const c of candidatas) {
+      if (c !== linea && c.length > 70) continue;
+      const sinTitulo = c.replace(/\b(Dr\.?|Dra\.?|Doctor|Doctora)\s+/g, "");
+      const n = sinTitulo.match(new RegExp(NOMBRE, "g"))?.find(nombreValido);
+      if (n) { salida.push({ nombre: n, cargo: cargo[1].toLowerCase(), fuente }); return; }
+    }
+  });
+  for (const m of texto.matchAll(RE_DR)) {
+    if (nombreValido(m[2])) salida.push({ nombre: `${/a/i.test(m[1].slice(-2)) ? "Dra." : "Dr."} ${m[2]}`, cargo: "profesional", fuente });
+  }
+}
+
+export async function buscarResponsable(url: string, htmlInicio: string): Promise<Responsable> {
+  const paginas = enlacesClave(htmlInicio, url);
+  const descargas = await Promise.all(paginas.map(async ([tipo, u]) => ({ tipo, u, html: await descargarPagina(u, 6000) })));
+  const fuentes = [{ tipo: "inicio", u: url, html: htmlInicio }, ...descargas.filter((d) => d.html)];
+
+  const personas: Persona[] = [];
+  let titular = "";
+  let tipoTitular: Responsable["tipoTitular"] = "";
+  let cif = "";
+  const emails = new Set<string>();
+
+  for (const f of fuentes) {
+    const texto = textoVisible(f.html);
+    personasEn(texto, f.tipo, personas);
+
+    const fundador = f.html.match(/"founder"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]{3,60})"/);
+    if (fundador && nombreValido(fundador[1])) personas.push({ nombre: fundador[1], cargo: "fundador/a", fuente: f.tipo });
+
+    if (!titular) {
+      // De más a menos fiable: el titular legal antes que el nombre comercial
+      const patrones = [
+        /\btitular(?: mercantil| del (?:sitio web|sitio|dominio|portal)| de (?:la web|este sitio web))?\s*[:\-–]\s*([^\n]{3,120})/i,
+        /\b(?:raz[oó]n social|denominaci[oó]n social|nombre o raz[oó]n social)\s*[:\-–]\s*([^\n]{3,120})/i,
+        /\bresponsable(?: del (?:sitio web|tratamiento))?\s*[:\-–]\s*([^\n]{3,120})/i,
+        /\bnombre comercial\s*[:\-–]\s*([^\n]{3,120})/i,
+      ];
+      const t = patrones.map((re) => texto.match(re)).find(Boolean);
+      if (t) titular = t[1].split(/\s*[,;]?\s+(?:con\s+)?(?:c\.?i\.?f|n\.?i\.?f|d\.?n\.?i|domicilio|direcci[oó]n|e-?mail|correo|tel[eé]fono)\b/i)[0].trim().replace(/[.,;:]$/, "");
+      // Plan B: "Nombre, S.L." solo en páginas legales y en la línea que habla del titular o del CIF
+      if (!titular && f.tipo !== "inicio" && f.tipo !== "equipo") {
+        const linea = texto.split("\n").find((l) => /c\.?i\.?f|n\.?i\.?f|titular|raz[oó]n social|responsable|sociedad/i.test(l) && /\bS\.?(L|A|COOP)\b/.test(l));
+        const s = linea?.match(/((?:[A-ZÁÉÍÓÚÑ0-9][\wÁÉÍÓÚÑáéíóúñ&.'-]*\s){1,5}?,?\s?(?:S\.?L\.?U?\.?|S\.?L\.?P\.?|S\.?A\.?U?\.?|S\.?COOP\.?))(?=[\s,.)]|$)/);
+        if (s) titular = s[1].trim();
+      }
+    }
+    if (!tipoTitular) {
+      const n = texto.match(/\b(?:c\.?i\.?f|n\.?i\.?f|d\.?n\.?i)\.?\s*(?:n[ºo°.]*\s*)?[:.]?\s*([A-Z]-?\d{7}-?[0-9A-J]|\d{8}-?[A-Z])\b/i);
+      if (n) {
+        if (/^[A-Z]/i.test(n[1])) { tipoTitular = "sociedad"; cif = n[1].toUpperCase().replace(/-/g, ""); }
+        else tipoTitular = "autonomo"; // es un DNI: no se guarda el número
+      }
+    }
+    for (const e of f.html.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || []) {
+      const el = e.toLowerCase();
+      if (!/sentry|wixpress|example|dominio|domain\.|\.(png|jpe?g|webp|gif|svg)$|u003e|@2x/.test(el)) emails.add(el);
+    }
+  }
+
+  // Si el titular es un autónomo, esa persona es la dueña
+  if (tipoTitular === "autonomo" && titular && nombreValido(titular.replace(/\b(Dr\.?|Dra\.?)\s+/, ""))) {
+    personas.unshift({ nombre: titular, cargo: "titular (autónomo/a)", fuente: "aviso legal" });
+  }
+
+  // Sin duplicados; primero los cargos de decisión y después los "Dr./Dra." sueltos
+  // "Clara Esteban" y "Clara Esteban Escobar" son la misma persona: se queda el nombre más largo
+  const clave = (n: string) => sinAcentos(n.replace(/^Dra?\.\s*/, ""));
+  const ordenadas = personas.sort((a, b) => Number(a.cargo === "profesional") - Number(b.cargo === "profesional"));
+  const unicas: Persona[] = [];
+  for (const p of ordenadas) {
+    const k = clave(p.nombre);
+    const igual = unicas.findIndex((u) => { const ku = clave(u.nombre); return ku === k || ku.startsWith(k + " ") || k.startsWith(ku + " "); });
+    if (igual === -1) unicas.push(p);
+    else if (k.length > clave(unicas[igual].nombre).length) unicas[igual] = { ...unicas[igual], nombre: p.nombre };
+  }
+  unicas.splice(6);
+
+  return {
+    personas: unicas,
+    titular: titular.slice(0, 100),
+    tipoTitular,
+    cif,
+    emails: [...emails].slice(0, 3),
+    paginas: fuentes.map((f) => f.tipo),
+  };
+}
+
 // Analiza la web de un negocio y devuelve los huecos detectados (ids de CHECKLIST_ITEMS).
 export default async function handler(req: any, res: any) {
   if (!requireAuth(req, res)) return;
@@ -343,7 +512,12 @@ export default async function handler(req: any, res: any) {
     const segundos = (Date.now() - start) / 1000;
     const h = html.toLowerCase();
 
-    const ficha = extraerFicha(html);
+    const ficha: ReturnType<typeof extraerFicha> & { responsable?: Responsable } = extraerFicha(html);
+    try {
+      ficha.responsable = await buscarResponsable(url, html);
+    } catch (e: any) {
+      console.error("responsable:", url, e?.message);
+    }
     const tieneWhatsapp = ficha.whatsappTipo !== "";
     const tieneReservas = ficha.reservaTipo === "plataforma";
     const tienePixel =

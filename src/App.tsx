@@ -5,7 +5,7 @@ import {
   ChevronRight, Building2, FileText, Mic, Send, CheckCircle2, Ban, Eye, Settings,
   User, Sparkles, Flame
 } from 'lucide-react';
-import { Ficha, Canal, ganchos, construirMensajes, tratamientoPorDefecto, DM_MAX } from './personalizacion';
+import { Ficha, Resenas, Canal, ganchos, construirMensajes, tratamientoPorDefecto, DM_MAX } from './personalizacion';
 import { IgFicha, analizarInstagram, crudoDesdeTexto, normalizarUsuario, resumenIg, valoracionOfertas } from './instagram';
 
 // Ofertas, bonos y descuentos que publica el negocio (web o Instagram), con la lectura para valorar el lead
@@ -85,6 +85,7 @@ interface Lead {
   ultimoContacto?: string;
   seguimientos?: number;
   ficha?: Ficha;
+  resenas?: Resenas; // reseñas de Google (las malas), al pulsar BUSCAR RESEÑAS MALAS
   instagram?: string; // @usuario, si se conoce
   ig?: IgFicha;
   historial?: Evento[];
@@ -372,6 +373,34 @@ export default function App() {
       setAnalisis(prev=>({ ...prev, checks: [], seoScore: 4, velocidad: '', trafico: '', observaciones: 'El análisis automático no pudo abrir esta web. Revísala a mano y marca las casillas.' }));
     } finally {
       setAnalizando(false);
+    }
+  };
+
+  const [resenasCargando, setResenasCargando] = useState(false);
+  const [errorResenas, setErrorResenas] = useState('');
+
+  const handleBuscarResenas = async () => {
+    if(!selectedLead || resenasCargando) return;
+    setResenasCargando(true);
+    setErrorResenas('');
+    try {
+      const r = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          placeId: selectedLead.id.startsWith('g-') ? selectedLead.id.slice(2) : '',
+          nombre: selectedLead.nombre,
+          direccion: selectedLead.direccion || selectedLead.ciudad,
+        }),
+      });
+      const data = await r.json();
+      if(!r.ok) throw new Error(data?.error || 'Error leyendo las reseñas');
+      const resenas: Resenas = { rating: data.rating, total: data.total, leidas: data.leidas, malas: data.malas, mapsUrl: data.mapsUrl, consultado: data.consultado };
+      setLeads(prev=>prev.map(x=>x.id===selectedLead.id ? {...x, resenas} : x));
+    } catch(e: any) {
+      setErrorResenas(e.message || 'Error de conexión');
+    } finally {
+      setResenasCargando(false);
     }
   };
 
@@ -885,6 +914,55 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                       : <div className="text-white/40">Ofertas y bonos: vuelve a analizar la web para verlos.</div>}
                   </div>
                 )}
+
+                {/* RESPONSABLE / DECISOR (sale de la propia web al analizarla) */}
+                {selectedLead?.ficha && (
+                  <div className="mt-3 rounded-xl bg-black border border-sky-400/30 p-3 text-[11px] space-y-1.5">
+                    <div className="font-bold text-sky-300 tracking-widest flex items-center gap-1"><User size={12}/> RESPONSABLE / CEO DE LA CLÍNICA</div>
+                    {!selectedLead.ficha.responsable ? (
+                      <div className="text-white/40">Vuelve a pulsar ANALIZAR WEB para buscar quién está detrás.</div>
+                    ) : (() => {
+                      const rs = selectedLead.ficha.responsable;
+                      const nada = !rs.personas.length && !rs.titular && !rs.emails.length;
+                      return (
+                        <>
+                          {rs.personas.map(p=>(
+                            <div key={p.nombre} className="pl-2 border-l-2 border-sky-300/50"><span className="font-bold">{p.nombre}</span> <span className="text-white/50">· {p.cargo} · visto en {p.fuente}</span></div>
+                          ))}
+                          {rs.titular && <div><span className="text-white/40">Titular legal:</span> {rs.titular}{rs.tipoTitular==='sociedad' ? ` · sociedad${rs.cif ? ` (CIF ${rs.cif})` : ''}` : rs.tipoTitular==='autonomo' ? ' · autónomo/a: es la persona dueña' : ''}</div>}
+                          {!!rs.emails.length && <div><span className="text-white/40">Email:</span> {rs.emails.join(' · ')}</div>}
+                          {nada && <div className="text-amber-300">No aparece en la web. Pregúntalo en la llamada: «¿Con quién hablo de cómo os llegan las citas?»</div>}
+                          <div className="text-white/40 italic">Revisado: {rs.paginas.join(', ')}. Compruébalo antes de usar el nombre.</div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* RESEÑAS MALAS EN GOOGLE */}
+                <div className="mt-3 rounded-xl bg-black border border-red-400/30 p-3 text-[11px] space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-bold text-red-300 tracking-widest flex items-center gap-1"><Star size={12}/> RESEÑAS MALAS EN GOOGLE</div>
+                    <button onClick={handleBuscarResenas} disabled={!selectedLead || resenasCargando} className="px-3 py-1.5 rounded-lg bg-red-400 text-black font-bold text-[11px] disabled:opacity-40">{resenasCargando ? 'LEYENDO...' : selectedLead?.resenas ? 'ACTUALIZAR' : 'BUSCAR RESEÑAS MALAS'}</button>
+                  </div>
+                  {errorResenas && <div className="text-red-400 flex items-center gap-1"><AlertTriangle size={12}/> {errorResenas}</div>}
+                  {selectedLead?.resenas && (() => {
+                    const rv = selectedLead.resenas;
+                    return (
+                      <>
+                        <div className="text-white/60">{rv.rating}★ de media · {rv.total} reseñas en total · Google solo deja leer {rv.leidas}</div>
+                        {rv.malas.length ? rv.malas.map(m=>(
+                          <div key={m.fecha + m.texto.slice(0,20)} className="pl-2 border-l-2 border-red-300/50">
+                            <span className="text-red-300">{'★'.repeat(m.estrellas)}{'☆'.repeat(5-m.estrellas)}</span> <span className="text-white/40">{m.hace}</span>
+                            <div className="text-white/80">{m.texto || <span className="text-white/40">(sin texto, solo puntuación)</span>}</div>
+                          </div>
+                        )) : <div className="text-white/50">Ninguna mala entre las {rv.leidas} que da Google.</div>}
+                        {rv.mapsUrl && <a href={rv.mapsUrl} target="_blank" rel="noreferrer" className="inline-block text-sky-300 underline">Ver todas en Google Maps (ordena por «Más baja»)</a>}
+                        <div className="text-white/40 italic">Úsalas para entender el problema (citas, esperas, no cogen el teléfono), no para echárselas en cara.</div>
+                      </>
+                    );
+                  })()}
+                </div>
 
                 {/* ANALIZADOR DE INSTAGRAM */}
                 <div className="mt-5 rounded-xl bg-black border border-fuchsia-400/30 p-3 space-y-2">

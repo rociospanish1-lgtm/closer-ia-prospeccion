@@ -33,6 +33,27 @@ export interface Ficha {
   tiposOferta?: string[];
   descuentoMax?: number | null;
   pocoTexto: boolean;
+  // Quién está detrás (aviso legal, equipo, inicio). Opcional: los leads antiguos no lo tienen.
+  responsable?: Responsable;
+}
+
+export interface Responsable {
+  personas: { nombre: string; cargo: string; fuente: string }[];
+  titular: string;
+  tipoTitular: 'sociedad' | 'autonomo' | '';
+  cif: string;
+  emails: string[];
+  paginas: string[];
+}
+
+// Reseñas de Google (solo las 5 que da la API) y las malas entre ellas
+export interface Resenas {
+  rating: number;
+  total: number;
+  leidas: number;
+  malas: { estrellas: number; texto: string; hace: string; fecha: string }[];
+  mapsUrl: string;
+  consultado: string;
 }
 
 export interface DatosLead {
