@@ -64,6 +64,16 @@ const OBJECIONES_V4 = [
 ];
 
 type EstadoLead = 'NUEVO' | 'CONTACTADO' | 'CALIENTE' | 'NO_INTERESADO';
+type FuenteContacto = 'web' | 'linkedin' | 'llamada' | 'otra';
+const FUENTES_CONTACTO: { id: FuenteContacto; label: string }[] = [
+  { id: 'web', label: 'Su web' }, { id: 'linkedin', label: 'LinkedIn' }, { id: 'llamada', label: 'Llamada' }, { id: 'otra', label: 'Otra' },
+];
+// Para el saludo de los mensajes basta el nombre de pila: "Dra. Ana López Ruiz" → "Ana"
+const nombreDePila = (n = '') => n.replace(/^\s*(Dra?\.?|Doctora?)\s+/i, '').trim().split(/\s+/)[0] || '';
+// Búsquedas que abre Rocío en su navegador (con su sesión de LinkedIn). La app no lee LinkedIn.
+const urlLinkedin = (clinica: string) => `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(clinica)}`;
+const urlGoogleLinkedin = (clinica: string, ciudad: string) =>
+  `https://www.google.com/search?q=${encodeURIComponent(`site:linkedin.com/in "${clinica}" ${ciudad} (director OR directora OR CEO OR gerente OR fundadora OR fundador OR propietaria)`)}`;
 type EstadoCloser = 'FRIO' | 'INTERACCION' | 'PROBLEMA_DETECTADO' | 'INTERES' | 'CUALIFICADO' | 'INTENCION_COMPRA' | 'OFERTA_PRESENTADA' | 'PAGO' | 'NO_INTERESADO' | 'SEGUIMIENTO' | 'NO_CONTACTAR';
 
 interface Lead {
@@ -86,6 +96,10 @@ interface Lead {
   seguimientos?: number;
   ficha?: Ficha;
   resenas?: Resenas; // reseñas de Google (las malas), al pulsar BUSCAR RESEÑAS MALAS
+  // Persona de contacto (decisora). La rellena Rocío: desde lo detectado en la web, LinkedIn o la llamada.
+  contactoNombre?: string;
+  contactoPuesto?: string;
+  contactoFuente?: FuenteContacto;
   instagram?: string; // @usuario, si se conoce
   ig?: IgFicha;
   historial?: Evento[];
@@ -228,7 +242,7 @@ export default function App() {
   useEffect(()=>{
     setAnalisis(prev=>({...prev, oportunidad:'', angulo:''}));
     setFrase2('');
-    setContacto('');
+    setContacto(nombreDePila(selectedLead?.contactoNombre));
     setChatHist([]);
     setEstadoCloser('FRIO');
     setCloserChecks([]);
@@ -374,6 +388,13 @@ export default function App() {
     } finally {
       setAnalizando(false);
     }
+  };
+
+  // Guarda la persona de contacto en el lead y pone su nombre de pila en el saludo de los mensajes
+  const guardarContacto = (cambios: Partial<Pick<Lead, 'contactoNombre' | 'contactoPuesto' | 'contactoFuente'>>) => {
+    if(!selectedLead) return;
+    setLeads(prev=>prev.map(x=>x.id===selectedLead.id ? {...x, ...cambios} : x));
+    if('contactoNombre' in cambios) setContacto(nombreDePila(cambios.contactoNombre));
   };
 
   const [resenasCargando, setResenasCargando] = useState(false);
@@ -811,6 +832,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                             <td className="p-3">
                               <input value={l.nombre} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, nombre:e.target.value}:x))} className="bg-transparent border border-transparent hover:border-white/20 rounded px-2 py-1 w-full outline-none"/>
                               <div className="text-[10px] text-white/30 px-2 flex items-center gap-1"><MapPin size={10}/>{l.direccion.slice(0,28)} • {l.rating}★ ({l.reviews})</div>
+                              {l.contactoNombre && <div className="text-[10px] text-white/60 px-2 flex items-center gap-1"><User size={10} className="text-[#c6ff00]"/>{l.contactoNombre}{l.contactoPuesto ? ` · ${l.contactoPuesto}` : ''}</div>}
                               <div className="px-2 pt-1 flex flex-wrap gap-1">
                                 {l.analisisEstado==='ok' && puntosHuecos(l)===0 && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Sin huecos clave</span>}
                                 {l.huecos?.includes('sin_whatsapp') && <span className="px-1.5 py-0.5 rounded bg-[#c6ff00]/20 text-[#c6ff00] text-[10px]">Sin WhatsApp</span>}
@@ -859,6 +881,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   <div className="flex items-center gap-2 mb-3"><Globe size={14} className="text-[#c6ff00]"/><span className="font-bold text-sm">LEAD SELECCIONADO</span><span className="ml-auto text-[10px] px-2 py-1 bg-[#c6ff00] text-black rounded font-bold">EN ANÁLISIS</span></div>
                   <div className="space-y-2 text-sm">
                     <div className="font-display font-bold text-lg">{selectedLead.nombre}</div>
+                    {selectedLead.contactoNombre && <div className="text-[12px] flex items-center gap-1"><User size={11} className="text-[#c6ff00]"/><b>{selectedLead.contactoNombre}</b>{selectedLead.contactoPuesto && <span className="text-white/50">· {selectedLead.contactoPuesto}</span>}</div>}
                     <div className="text-[#c6ff00] text-xs break-all">{selectedLead.web}</div>
                     <div className="flex gap-2 text-[11px] text-white/50"><span className="flex items-center gap-1"><Phone size={10}/>{selectedLead.telefono}</span><span className="flex items-center gap-1"><MapPin size={10}/>{selectedLead.direccion}</span></div>
                     <div className="flex gap-2 pt-2">
@@ -912,6 +935,34 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                     {selectedLead.ficha.ofertas
                       ? <BloqueOfertas ofertas={selectedLead.ficha.ofertas.map(texto=>({texto}))} tipos={selectedLead.ficha.tiposOferta} descuentoMax={selectedLead.ficha.descuentoMax}/>
                       : <div className="text-white/40">Ofertas y bonos: vuelve a analizar la web para verlos.</div>}
+                  </div>
+                )}
+
+                {/* PERSONA DE CONTACTO (se guarda en el lead) */}
+                {selectedLead && (
+                  <div className="mt-5 rounded-xl bg-black border border-[#c6ff00]/30 p-3 text-[11px] space-y-2">
+                    <div className="font-bold text-[#c6ff00] tracking-widest flex items-center gap-1"><User size={12}/> PERSONA DE CONTACTO</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      <input value={selectedLead.contactoNombre || ''} onChange={e=>guardarContacto({ contactoNombre: e.target.value })} placeholder="Nombre y apellidos" className="bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/>
+                      <input value={selectedLead.contactoPuesto || ''} onChange={e=>guardarContacto({ contactoPuesto: e.target.value })} placeholder="Puesto (directora médica, gerente...)" className="bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/>
+                      <select value={selectedLead.contactoFuente || ''} onChange={e=>guardarContacto({ contactoFuente: (e.target.value || undefined) as FuenteContacto | undefined })} className="bg-black border border-white/15 rounded-lg px-3 py-2 text-sm">
+                        <option value="">¿De dónde sale?</option>
+                        {FUENTES_CONTACTO.map(f=><option key={f.id} value={f.id}>{f.label}</option>)}
+                      </select>
+                    </div>
+                    {!!selectedLead.ficha?.responsable?.personas.length && (
+                      <div className="flex flex-wrap gap-1 items-center">
+                        <span className="text-white/40">Detectado en su web:</span>
+                        {selectedLead.ficha.responsable.personas.map(p=>(
+                          <button key={p.nombre} onClick={()=>guardarContacto({ contactoNombre: p.nombre, contactoPuesto: p.cargo === 'profesional' ? 'profesional de la clínica' : p.cargo, contactoFuente: 'web' })} className="px-2 py-1 rounded bg-white/10 hover:bg-[#c6ff00]/20">{p.nombre} · {p.cargo}</button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <a href={urlLinkedin(selectedLead.nombre)} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded-lg bg-sky-500 text-black font-bold">BUSCAR EN LINKEDIN</a>
+                      <a href={urlGoogleLinkedin(selectedLead.nombre, selectedLead.ciudad)} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 font-bold">PERFILES DE LINKEDIN EN GOOGLE</a>
+                    </div>
+                    <div className="text-white/40 italic">Abre la búsqueda en tu navegador, copia nombre y puesto aquí y marca «LinkedIn». Los mensajes la saludan por su nombre de pila{contacto ? ` («${contacto}»)` : ''}.</div>
                   </div>
                 )}
 
