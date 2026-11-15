@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Clock, MessageSquare, Phone, Mail, Instagram, StickyNote, Download, Upload, ChevronRight, CheckCircle2, X, Search, AlertTriangle, Pencil } from 'lucide-react';
-import { Evento, CanalEnvio, proximoPaso, fechaCorta, fechaHora, fusionar } from './historial';
+import { Evento, CanalEnvio, proximoPaso, fechaCorta, fechaHora, fusionar, canalSeguimiento, motivoCanal, bloqueado, NOMBRE_CANAL } from './historial';
 
 export interface LeadH {
   id: string;
@@ -14,12 +14,12 @@ export interface LeadH {
   ultimoContacto?: string;
   seguimientos?: number;
   historial?: Evento[];
+  pidioInfo?: boolean;
 }
 
 type Filtro = 'hoy' | 'espera' | 'respondieron' | 'cerrados' | 'todos';
 
 const ICONO: Record<CanalEnvio, any> = { email: Mail, whatsapp: MessageSquare, instagram: Instagram, llamada: Phone, otro: StickyNote };
-const NOMBRE_CANAL: Record<CanalEnvio, string> = { email: 'Email', whatsapp: 'WhatsApp', instagram: 'Instagram', llamada: 'Llamada', otro: 'Otro' };
 const NOMBRE_TIPO: Record<Evento['tipo'], string> = { contacto: 'Primer contacto', seguimiento: 'Seguimiento', respuesta: 'Respuesta', nota: 'Nota', estado: 'Estado' };
 
 export default function Historial<T extends LeadH>(props: {
@@ -55,7 +55,7 @@ export default function Historial<T extends LeadH>(props: {
 
   const grupo = (l: T): Exclude<Filtro, 'todos'> => {
     if (l.estado === 'CALIENTE') return 'respondieron';
-    if (l.estado === 'NO_INTERESADO') return 'cerrados';
+    if (l.estado === 'NO_INTERESADO' || bloqueado(l)) return 'cerrados';
     return proximoPaso(l).vencido ? 'hoy' : 'espera';
   };
 
@@ -105,11 +105,12 @@ export default function Historial<T extends LeadH>(props: {
   const pasoTexto = (l: T) => {
     const p = proximoPaso(l);
     if (l.estado === 'CALIENTE') return { t: 'Ha respondido: sigue la conversación', c: 'text-[#c6ff00]' };
+    if (bloqueado(l)) return { t: 'NO CONTACTAR: pidió que no se le contacte más', c: 'text-red-300' };
     if (l.estado === 'NO_INTERESADO') return { t: 'Cerrado', c: 'text-white/40' };
     if (p.tipo === 'ninguno' || p.fecha === null) return { t: 'Sin fecha de contacto', c: 'text-white/40' };
     const cuando = p.vencido ? 'toca hoy' : fechaCorta(p.fecha);
     if (p.tipo === 'cerrar') return { t: `Sin respuesta tras 2 seguimientos: cerrar (${cuando})`, c: p.vencido ? 'text-red-300' : 'text-white/60' };
-    return { t: `${p.tipo === 'seguimiento1' ? '1.er' : '2.º'} seguimiento: ${cuando}`, c: p.vencido ? 'text-amber-300' : 'text-white/60' };
+    return { t: `${p.tipo === 'seguimiento1' ? '1.er' : '2.º'} seguimiento por ${NOMBRE_CANAL[canalSeguimiento(l)].toLowerCase()}: ${cuando}`, c: p.vencido ? 'text-amber-300' : 'text-white/60' };
   };
 
   return (
@@ -167,9 +168,12 @@ export default function Historial<T extends LeadH>(props: {
                   <div className="flex flex-wrap gap-2">
                     <button onClick={() => onAbrir(l)} className="px-3 py-2 rounded-lg bg-[#c6ff00] text-black font-bold text-[11px] flex items-center gap-1">VER MENSAJES DE SEGUIMIENTO <ChevronRight size={12} /></button>
                     {l.estado === 'CONTACTADO' && proximo.tipo !== 'cerrar' && (
-                      <button onClick={() => registrar(l.id, { fecha: new Date().toISOString(), tipo: 'seguimiento', canal: primero?.canal, texto: `${proximo.tipo === 'seguimiento1' ? '1.er' : '2.º'} seguimiento enviado.` }, { ultimoContacto: new Date().toISOString(), seguimientos: (l.seguimientos || 0) + 1 } as Partial<T>)} className="px-3 py-2 rounded-lg bg-amber-400 text-black font-bold text-[11px]">MARCAR {proximo.tipo === 'seguimiento1' ? '1.er' : '2.º'} SEGUIMIENTO ENVIADO</button>
+                      <button onClick={() => registrar(l.id, { fecha: new Date().toISOString(), tipo: 'seguimiento', canal: canalSeguimiento(l), texto: `${proximo.tipo === 'seguimiento1' ? '1.er' : '2.º'} seguimiento por ${NOMBRE_CANAL[canalSeguimiento(l)].toLowerCase()}.` }, { ultimoContacto: new Date().toISOString(), seguimientos: (l.seguimientos || 0) + 1 } as Partial<T>)} className="px-3 py-2 rounded-lg bg-amber-400 text-black font-bold text-[11px]">MARCAR {proximo.tipo === 'seguimiento1' ? '1.er' : '2.º'} SEGUIMIENTO ENVIADO</button>
                     )}
-                    {l.estado !== 'NO_INTERESADO' && (
+                    {l.estado === 'CONTACTADO' && proximo.tipo !== 'cerrar' && (
+                      <div className="w-full text-[11px] text-amber-200">Próximo toque por {NOMBRE_CANAL[canalSeguimiento(l)].toLowerCase()}. {motivoCanal(l)}</div>
+                    )}
+                    {l.estado !== 'NO_INTERESADO' && !bloqueado(l) && (
                       <button onClick={() => registrar(l.id, { fecha: new Date().toISOString(), tipo: 'estado', texto: 'Cerrado sin respuesta o sin interés.' }, { estado: 'NO_INTERESADO' } as Partial<T>)} className="px-3 py-2 rounded-lg bg-white/10 border border-white/15 font-bold text-[11px]">CERRAR</button>
                     )}
                     {l.estado === 'NO_INTERESADO' && (

@@ -30,7 +30,7 @@ function BloqueOfertas({ ofertas, tipos, descuentoMax }: { ofertas: { texto: str
     </div>
   );
 }
-import { Evento, CanalEnvio, migrar, proximoPaso, fechaCorta } from './historial';
+import { Evento, CanalEnvio, migrar, proximoPaso, fechaCorta, canalSeguimiento, motivoCanal, bloqueado, coincideBloqueado, NOMBRE_CANAL } from './historial';
 import Historial from './Historial';
 
 // Planes de la agencia (rociopinedaia.es). Precios sin IVA.
@@ -63,7 +63,7 @@ const OBJECIONES_V4 = [
   {key:'No quiero cambiar nada', estrategia:'Validar → no intentar imponer un cambio → explicar únicamente si existe una mejora que pueda integrarse sin alterar la operativa actual', queEvitar:'No presentar el cambio como obligatorio', ejemplo:'Lo entiendo. Precisamente por eso, si algún día lo valoráis, la idea sería integrarlo en vuestra forma de trabajar sin tener que cambiar todo el sistema.'}
 ];
 
-type EstadoLead = 'NUEVO' | 'CONTACTADO' | 'CALIENTE' | 'NO_INTERESADO';
+type EstadoLead = 'NUEVO' | 'CONTACTADO' | 'CALIENTE' | 'NO_INTERESADO' | 'NO_CONTACTAR';
 type FuenteContacto = 'web' | 'linkedin' | 'llamada' | 'otra';
 const FUENTES_CONTACTO: { id: FuenteContacto; label: string }[] = [
   { id: 'web', label: 'Su web' }, { id: 'linkedin', label: 'LinkedIn' }, { id: 'llamada', label: 'Llamada' }, { id: 'otra', label: 'Otra' },
@@ -75,6 +75,7 @@ const urlLinkedin = (clinica: string) => `https://www.linkedin.com/search/result
 const urlGoogleLinkedin = (clinica: string, ciudad: string) =>
   `https://www.google.com/search?q=${encodeURIComponent(`site:linkedin.com/in "${clinica}" ${ciudad} (director OR directora OR CEO OR gerente OR fundadora OR fundador OR propietaria)`)}`;
 type EstadoCloser = 'FRIO' | 'INTERACCION' | 'PROBLEMA_DETECTADO' | 'INTERES' | 'CUALIFICADO' | 'INTENCION_COMPRA' | 'OFERTA_PRESENTADA' | 'PAGO' | 'NO_INTERESADO' | 'SEGUIMIENTO' | 'NO_CONTACTAR';
+type MsgCloser = { role:'prospecto'|'ia'; text:string; objecion?: typeof OBJECIONES_V4[0]; estado?: EstadoCloser };
 
 interface Lead {
   id: string;
@@ -104,6 +105,8 @@ interface Lead {
   ig?: IgFicha;
   historial?: Evento[];
   pidioInfo?: boolean; // solo entonces se generan mensajes escritos (WhatsApp, Instagram, email)
+  closerChat?: MsgCloser[]; // conversación del paso 4, guardada con su clínica
+  estadoCloser?: EstadoCloser;
 }
 
 interface Analisis {
@@ -183,7 +186,7 @@ export default function App() {
   const [closerChecks, setCloserChecks] = useState<string[]>([]);
   const [estadoCloser, setEstadoCloser] = useState<EstadoCloser>('FRIO');
   const [chatInput, setChatInput] = useState('');
-  const [chatHist, setChatHist] = useState<{role:'prospecto'|'ia', text:string, objecion?: typeof OBJECIONES_V4[0], estado?: EstadoCloser}[]>([]);
+  const [chatHist, setChatHist] = useState<MsgCloser[]>([]);
   const [problemaConcreto, setProblemaConcreto] = useState('gestión de citas fuera de horario');
   const [planId, setPlanId] = useState<PlanId>('pro');
   const [fasePago, setFasePago] = useState<'firma'|'activacion'>('firma');
@@ -218,6 +221,25 @@ export default function App() {
   };
   const marcarPidioInfo = (l: Lead, valor: boolean) => registrar(l.id, { fecha:new Date().toISOString(), tipo:'nota', texto: valor ? 'Pidió info: se le pueden enviar mensajes escritos.' : 'Quitada la marca «pidió info».' }, { pidioInfo: valor });
 
+  // Guarda la conversación del closer y su estado en la clínica. "No me interesa" y "No me contactes más"
+  // cambian también el estado de la clínica: así no vuelve a salir en seguimientos.
+  const guardarCloser = (id: string, chat: MsgCloser[], estado: EstadoCloser, textoProspecto?: string) => {
+    setLeads(prev=>prev.map(x=>{
+      if(x.id!==id) return x;
+      const base = {...x, closerChat: chat, estadoCloser: estado};
+      const cierre: EstadoLead | null = estado==='NO_CONTACTAR' ? 'NO_CONTACTAR' : estado==='NO_INTERESADO' && x.estado!=='NO_CONTACTAR' ? 'NO_INTERESADO' : null;
+      if(!cierre || x.estado===cierre) return base;
+      const texto = cierre==='NO_CONTACTAR'
+        ? `Ha pedido que no se le contacte más${textoProspecto ? `: «${textoProspecto}»` : ''}. Bloqueada: sin seguimientos ni mensajes.`
+        : `No le interesa${textoProspecto ? `: «${textoProspecto}»` : ''}. Cerrada.`;
+      return {...base, estado: cierre, historial:[...(x.historial||[]), { fecha:new Date().toISOString(), tipo:'estado', texto }]};
+    }));
+  };
+  const cambiarEstadoCloser = (e: EstadoCloser) => {
+    setEstadoCloser(e);
+    if(selectedLead) guardarCloser(selectedLead.id, chatHist, e);
+  };
+
   const seleccionar = (l: Lead, paso = 2) => {
     setSelectedId(l.id);
     setErrorAnalisis('');
@@ -238,13 +260,14 @@ export default function App() {
     }
   },[selectedLead?.id, analisis.oportunidad]);
 
-  // Al cambiar de lead: nada del lead anterior (gancho, conversación, estado del closer, pago)
+  // Al cambiar de lead: nada del lead anterior (gancho, pago). La conversación del closer y su estado
+  // se cargan los de ESTA clínica, guardados con ella.
   useEffect(()=>{
     setAnalisis(prev=>({...prev, oportunidad:'', angulo:''}));
     setFrase2('');
     setContacto(nombreDePila(selectedLead?.contactoNombre));
-    setChatHist([]);
-    setEstadoCloser('FRIO');
+    setChatHist(selectedLead?.closerChat || []);
+    setEstadoCloser(selectedLead?.estadoCloser || (selectedLead && bloqueado(selectedLead) ? 'NO_CONTACTAR' : 'FRIO'));
     setCloserChecks([]);
     setLinkGenerado('');
     setEmailCliente('');
@@ -318,6 +341,8 @@ export default function App() {
 
   const handleAddLead = () => {
     if(!newLead.nombre) return;
+    const b = coincideBloqueado(leads, newLead.nombre, newLead.telefono);
+    if(b){ window.alert(`${b.nombre} pidió que no se le contacte más. No se añade.`); return; }
     const l: Lead = {
       id: Date.now().toString(),
       nombre: newLead.nombre || '',
@@ -338,7 +363,7 @@ export default function App() {
   const handleBulkAdd = () => {
     if(!bulk.trim()) return;
     const lines = bulk.split('\n').filter(l=>l.trim());
-    const newOnes: Lead[] = lines.map((line, i)=>{
+    const todos: Lead[] = lines.map((line, i)=>{
       const parts = line.split(/[,;|]\s*/);
       return {
         id: (Date.now()+i).toString(),
@@ -353,6 +378,9 @@ export default function App() {
         nicho, ciudad
       };
     });
+    const newOnes = todos.filter(l=>!coincideBloqueado(leads, l.nombre, l.telefono));
+    const fuera = todos.length - newOnes.length;
+    if(fuera) window.alert(`${fuera} no se ${fuera===1 ? 'añade' : 'añaden'}: pidieron que no se les contacte más.`);
     setLeads(prev=>[...newOnes, ...prev]);
     setBulk('');
   };
@@ -582,12 +610,14 @@ export default function App() {
     const retorno = precioVisto ? `Con ${precioVisto.tratamiento} a ${precioVisto.euros} €, se paga con ${Math.ceil(plan.cuota / precioVisto.euros)} citas al mes. ` : '';
     const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto).replace(/\[plan\]/g, plan.nombre).replace(/\[cuota\]/g, euro(plan.cuota)).replace(/\[alta\]/g, euro(plan.alta)).replace(/\[retorno\]/g, retorno).replace(/\[tratamiento\]/g, tratamientoMsg) : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
 
-    setChatHist(prev=>[
-      ...prev,
+    const nuevoChat: MsgCloser[] = [
+      ...chatHist,
       { role:'prospecto', text: chatInput, objecion: obj || undefined, estado: newEstado },
       { role:'ia', text: ejemploConProblema, objecion: obj || undefined, estado: newEstado }
-    ]);
+    ];
+    setChatHist(nuevoChat);
     setEstadoCloser(newEstado);
+    if(selectedLead) guardarCloser(selectedLead.id, nuevoChat, newEstado, chatInput.trim());
     setChatInput('');
   };
 
@@ -634,6 +664,9 @@ export default function App() {
     }
     return lista;
   },[filteredLeads, pestana]);
+
+  const esBloqueado = !!selectedLead && bloqueado(selectedLead);
+  const puedeEscribir = !!selectedLead?.pidioInfo && !esBloqueado;
 
   const tocanHoy = useMemo(()=>leads.filter(l=>l.estado==='CONTACTADO' && proximoPaso(l).vencido).length,[leads]);
 
@@ -843,21 +876,22 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                                 {!l.telefono && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Sin teléfono</span>}
                                 {l.analisisEstado==='ok' && puntosHuecos(l)===0 && (l.huecos||[]).length>0 && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/50">Solo web / SEO</span>}
                                 {l.estado==='CONTACTADO' && diasDesdeContacto(l)!==null && <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-white/60">Contactado hace {diasDesdeContacto(l)} d</span>}
-                                {tocaSeguimiento(l) && <button onClick={()=>registrar(l.id, { fecha:new Date().toISOString(), tipo:'seguimiento', canal: l.historial?.find(e=>e.tipo==='contacto')?.canal, texto:`${(l.seguimientos||0)===0 ? '1.er' : '2.º'} seguimiento enviado.` }, { ultimoContacto:new Date().toISOString(), seguimientos:(l.seguimientos||0)+1 })} className="px-1.5 py-0.5 rounded bg-amber-400 text-black text-[10px] font-bold">TOCA SEGUIMIENTO · HECHO</button>}
+                                {tocaSeguimiento(l) && <button title={motivoCanal(l)} onClick={()=>registrar(l.id, { fecha:new Date().toISOString(), tipo:'seguimiento', canal: canalSeguimiento(l), texto:`${(l.seguimientos||0)===0 ? '1.er' : '2.º'} seguimiento por ${NOMBRE_CANAL[canalSeguimiento(l)].toLowerCase()}.` }, { ultimoContacto:new Date().toISOString(), seguimientos:(l.seguimientos||0)+1 })} className="px-1.5 py-0.5 rounded bg-amber-400 text-black text-[10px] font-bold">TOCA SEGUIMIENTO POR {NOMBRE_CANAL[canalSeguimiento(l)].toUpperCase()} · HECHO</button>}
+                                {bloqueado(l) && <span className="px-1.5 py-0.5 rounded bg-red-500 text-white text-[10px] font-bold">NO CONTACTAR</span>}
                                 {l.estado==='CONTACTADO' && (l.seguimientos||0)>=2 && diasDesdeContacto(l)!==null && diasDesdeContacto(l)!>=4 && <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[10px]">Sin respuesta: cerrar</span>}
                               </div>
                             </td>
                             <td className="p-3"><input value={l.web} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, web:e.target.value}:x))} className="bg-transparent border border-transparent hover:border-white/20 rounded px-2 py-1 w-full outline-none text-[11px] text-[#c6ff00]"/></td>
                             <td className="p-3 hidden md:table-cell"><input value={l.telefono} onChange={e=>setLeads(prev=>prev.map(x=>x.id===l.id ? {...x, telefono:e.target.value}:x))} className="bg-transparent border border-transparent hover:border-white/20 rounded px-2 py-1 w-full outline-none"/></td>
                             <td className="p-3">
-                              <select value={l.estado} onChange={e=>{ const v = e.target.value as EstadoLead; registrar(l.id, { fecha:new Date().toISOString(), tipo:'estado', texto:`Estado cambiado a ${v}.` }, { estado:v, ...(v==='CONTACTADO' && !l.ultimoContacto ? {ultimoContacto:new Date().toISOString(), seguimientos:0} : {}) }); }} className="bg-black border border-white/15 rounded px-2 py-1 text-[11px]">
-                                <option>NUEVO</option><option>CONTACTADO</option><option>CALIENTE</option><option>NO_INTERESADO</option>
+                              <select value={l.estado} onChange={e=>{ const v = e.target.value as EstadoLead; if(bloqueado(l) && !window.confirm(`${l.nombre} pidió que no se le contacte más. ¿Seguro que quieres quitar el bloqueo? Solo si ella misma te ha vuelto a escribir.`)) return; if(v==='NO_CONTACTAR' && !window.confirm(`¿Marcar ${l.nombre} como NO CONTACTAR? Se bloquean los seguimientos y los mensajes.`)) return; registrar(l.id, { fecha:new Date().toISOString(), tipo:'estado', texto:`Estado cambiado a ${v}.` }, { estado:v, ...(v==='CONTACTADO' && !l.ultimoContacto ? {ultimoContacto:new Date().toISOString(), seguimientos:0} : {}) }); }} className="bg-black border border-white/15 rounded px-2 py-1 text-[11px]">
+                                <option>NUEVO</option><option>CONTACTADO</option><option>CALIENTE</option><option>NO_INTERESADO</option><option value="NO_CONTACTAR">NO CONTACTAR</option>
                               </select>
                             </td>
                             <td className="p-3">
                               <div className="flex gap-1">
                                 <button onClick={()=>seleccionar(l)} className={`px-3 py-1.5 rounded-lg font-bold text-[11px] flex items-center gap-1 ${selectedId===l.id ? 'bg-[#c6ff00] text-black' : 'bg-white text-black hover:bg-white/90'}`}><Eye size={12}/> SEL</button>
-                                <button onClick={()=>{ if((l.historial?.length||0)>0 && !window.confirm(`${l.nombre} tiene historial de contacto. Si lo borras, pierdes ese historial. ¿Borrar igualmente?`)) return; setLeads(prev=>prev.filter(x=>x.id!==l.id)); }} className="p-1.5 rounded bg-white/10 hover:bg-red-500/20"><Trash2 size={12}/></button>
+                                <button onClick={()=>{ if(bloqueado(l)){ window.alert(`${l.nombre} está en NO CONTACTAR. No se borra: así, si vuelve a salir en una búsqueda, sigue bloqueada.`); return; } if((l.historial?.length||0)>0 && !window.confirm(`${l.nombre} tiene historial de contacto. Si lo borras, pierdes ese historial. ¿Borrar igualmente?`)) return; setLeads(prev=>prev.filter(x=>x.id!==l.id)); }} className="p-1.5 rounded bg-white/10 hover:bg-red-500/20"><Trash2 size={12}/></button>
                               </div>
                             </td>
                           </tr>
@@ -1094,7 +1128,12 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                 <div className="col-span-2"><label className="text-[11px] text-white/50">NOMBRE DE LA PERSONA A LA QUE ESCRIBES (dueña, gerente...)</label><input value={contacto} onChange={e=>setContacto(e.target.value)} placeholder="Opcional, pero sube mucho la respuesta: búscalo en su web, Instagram o Google" className="mt-1 w-full bg-black border border-white/15 rounded-lg px-3 py-2 text-sm"/></div>
               </div>
 
-              {selectedLead && (
+              {selectedLead && bloqueado(selectedLead) && (
+                <div className="rounded-2xl p-4 border bg-red-500/15 border-red-500/50 text-[12px] leading-relaxed">
+                  <b className="text-red-300">NO CONTACTAR</b> · {selectedLead.nombre} pidió que no se le contacte más. No se le llama, no se le escribe y no tiene seguimientos (RGPD / LSSI). Solo si ella vuelve a escribirte, quita el bloqueo en la lista del paso 1.
+                </div>
+              )}
+              {selectedLead && !bloqueado(selectedLead) && (
                 <div className={`rounded-2xl p-4 border flex items-center gap-3 ${selectedLead.pidioInfo ? 'bg-[#25D366]/10 border-[#25D366]/40' : 'bg-white/[0.04] border-white/10'}`}>
                   <div className="flex-1 text-[11px] leading-relaxed">{selectedLead.pidioInfo
                     ? <><b>PIDIÓ INFO</b> · ya puedes enviarle WhatsApp, Instagram o email.</>
@@ -1102,7 +1141,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   <button onClick={()=>marcarPidioInfo(selectedLead, !selectedLead.pidioInfo)} className={`px-3 py-2 rounded-lg text-[11px] font-black ${selectedLead.pidioInfo ? 'bg-white/10 border border-white/15' : 'bg-[#25D366] text-black'}`}>{selectedLead.pidioInfo ? 'QUITAR MARCA' : 'MARCAR «PIDIÓ INFO»'}</button>
                 </div>
               )}
-              {calidad.length > 0 && (
+              {calidad.length > 0 && !esBloqueado && (
                 <div className={`rounded-2xl border p-4 ${calidad.every(c=>c.ok) ? 'bg-[#c6ff00]/10 border-[#c6ff00]/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
                   <div className="font-bold text-[11px] tracking-widest mb-2">{calidad.every(c=>c.ok) ? 'MENSAJE PERSONALIZADO ✓' : 'MENSAJE POCO PERSONALIZADO: CORRÍGELO ANTES DE ENVIAR'}</div>
                   <div className="space-y-1">{calidad.map(c=>(
@@ -1111,7 +1150,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   <div className="text-[10px] text-white/40 mt-2">Prueba final: si cambiando solo el nombre sirviera para otra clínica, reescribe el gancho en el paso 2.</div>
                 </div>
               )}
-              <div className="rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden">
+              <div className={`rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden ${esBloqueado ? 'opacity-30 pointer-events-none select-none' : ''}`}>
                 <div className="flex border-b border-white/10">
                   {[
                     {id:'guion', label:'GUION LLAMADA', icon: Phone},
@@ -1144,21 +1183,21 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                       <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-[11px] text-amber-200">Si en la apertura te dicen que lo contestan siempre al momento: no insistas. Despídete bien y pasa a la siguiente clínica.</div>
                     </div>
                   )}
-                  {prospectTab==='email' && !!selectedLead?.pidioInfo && (
+                  {prospectTab==='email' && puedeEscribir && (
                     <div className="space-y-3">
                       <div className="text-[10px] text-white/40">SOLO PORQUE PIDIÓ INFO · corto, sin enlaces, termina en pregunta</div>
                       <textarea value={emailTpl} onChange={e=>setEmailTpl(e.target.value)} className="w-full h-[320px] bg-black border border-white/10 rounded-xl p-4 text-[12px] leading-relaxed outline-none focus:border-white/20"/>
                       <button onClick={()=>copy(emailTpl)} className="w-full bg-white text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR EMAIL</button>
                     </div>
                   )}
-                  {(prospectTab==='whatsapp' || prospectTab==='email') && !selectedLead?.pidioInfo && (
+                  {(prospectTab==='whatsapp' || prospectTab==='email') && !puedeEscribir && (
                     <div className="space-y-3">
                       <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-[11px] text-amber-200">Este prospecto no ha pedido información: nada de mensajes escritos. Llama con este guion y, si te pide info, márcalo arriba con «PIDIÓ INFO».</div>
                       <div className="rounded-xl bg-black border border-white/10 p-3 text-[12px] leading-relaxed whitespace-pre-wrap">{textoGuion}</div>
                       <button onClick={()=>copy(textoGuion)} className="w-full bg-[#c6ff00] text-black font-black py-3 rounded-xl flex items-center justify-center gap-2"><Copy size={14}/> COPIAR GUION DE LLAMADA</button>
                     </div>
                   )}
-                  {prospectTab==='whatsapp' && !!selectedLead?.pidioInfo && (
+                  {prospectTab==='whatsapp' && puedeEscribir && (
                     <div className="space-y-3">
                       <div className="text-[10px] text-white/40">SOLO PORQUE PIDIÓ INFO · escena del problema + una pregunta. Sin solución ni herramientas.</div>
                       <textarea value={waTpl} onChange={e=>setWaTpl(e.target.value)} className="w-full h-[200px] bg-black border border-white/10 rounded-xl p-4 text-[13px] leading-relaxed outline-none focus:border-white/20"/>
@@ -1170,15 +1209,20 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
             </div>
 
             <div className="col-span-12 lg:col-span-5 space-y-4">
-              {selectedLead?.pidioInfo ? (<>
+              {puedeEscribir ? (<>
               <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 space-y-3">
                 <div className="font-bold text-[11px] tracking-widest text-white/60">SEGUIMIENTOS (si deja de contestar; escena nueva + pregunta, nunca "¿viste mi mensaje?")</div>
+                {selectedLead && selectedLead.estado==='CONTACTADO' && (selectedLead.seguimientos||0)<2 && (
+                  <div className={`rounded-lg p-2 text-[11px] border ${canalSeguimiento(selectedLead)==='llamada' ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' : 'bg-[#25D366]/10 border-[#25D366]/30'}`}>
+                    <b>PRÓXIMO TOQUE: {NOMBRE_CANAL[canalSeguimiento(selectedLead)].toUpperCase()}</b> · {motivoCanal(selectedLead)}{canalSeguimiento(selectedLead)==='llamada' ? ' Usa estos textos como idea para la llamada, no los envíes por escrito.' : ''}
+                  </div>
+                )}
                 <div>
                   <div className="text-[10px] text-white/40 mb-1">A LOS 3 DÍAS · otra escena suya + una pregunta</div>
                   <textarea value={seg1Tpl} onChange={e=>setSeg1Tpl(e.target.value)} className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-[12px] outline-none"/>
                   <div className="mt-1 grid grid-cols-2 gap-1">
                     <button onClick={()=>copy(seg1Tpl)} className="bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 1</button>
-                    <button disabled={!selectedLead || selectedLead.estado!=='CONTACTADO' || (selectedLead.seguimientos||0)!==0} onClick={()=>selectedLead && registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo:'seguimiento', canal: selectedLead.historial?.find(e=>e.tipo==='contacto')?.canal, texto: seg1Tpl }, { ultimoContacto:new Date().toISOString(), seguimientos:1 })} className="bg-amber-400 text-black font-bold py-2 rounded-lg text-[11px] disabled:opacity-30">{(selectedLead?.seguimientos||0)>=1 ? 'ENVIADO ✓' : 'MARCAR ENVIADO'}</button>
+                    <button disabled={!selectedLead || selectedLead.estado!=='CONTACTADO' || (selectedLead.seguimientos||0)!==0} onClick={()=>selectedLead && registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo:'seguimiento', canal: canalSeguimiento(selectedLead), texto: canalSeguimiento(selectedLead)==='llamada' ? '1.er seguimiento por llamada.' : seg1Tpl }, { ultimoContacto:new Date().toISOString(), seguimientos:1 })} className="bg-amber-400 text-black font-bold py-2 rounded-lg text-[11px] disabled:opacity-30">{(selectedLead?.seguimientos||0)>=1 ? 'ENVIADO ✓' : 'MARCAR ENVIADO'}</button>
                   </div>
                 </div>
                 <div>
@@ -1186,7 +1230,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   <textarea value={seg2Tpl} onChange={e=>setSeg2Tpl(e.target.value)} className="w-full h-32 bg-black border border-white/10 rounded-xl p-3 text-[12px] outline-none"/>
                   <div className="mt-1 grid grid-cols-2 gap-1">
                     <button onClick={()=>copy(seg2Tpl)} className="bg-white/10 font-bold py-2 rounded-lg text-[11px] flex items-center justify-center gap-2"><Copy size={12}/> COPIAR SEGUIMIENTO 2</button>
-                    <button disabled={!selectedLead || selectedLead.estado!=='CONTACTADO' || (selectedLead.seguimientos||0)!==1} onClick={()=>selectedLead && registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo:'seguimiento', canal: selectedLead.historial?.find(e=>e.tipo==='contacto')?.canal, texto: seg2Tpl }, { ultimoContacto:new Date().toISOString(), seguimientos:2 })} className="bg-amber-400 text-black font-bold py-2 rounded-lg text-[11px] disabled:opacity-30">{(selectedLead?.seguimientos||0)>=2 ? 'ENVIADO ✓' : 'MARCAR ENVIADO'}</button>
+                    <button disabled={!selectedLead || selectedLead.estado!=='CONTACTADO' || (selectedLead.seguimientos||0)!==1} onClick={()=>selectedLead && registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo:'seguimiento', canal: canalSeguimiento(selectedLead), texto: canalSeguimiento(selectedLead)==='llamada' ? '2.º seguimiento por llamada.' : seg2Tpl }, { ultimoContacto:new Date().toISOString(), seguimientos:2 })} className="bg-amber-400 text-black font-bold py-2 rounded-lg text-[11px] disabled:opacity-30">{(selectedLead?.seguimientos||0)>=2 ? 'ENVIADO ✓' : 'MARCAR ENVIADO'}</button>
                   </div>
                 </div>
               </div>
@@ -1217,7 +1261,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
               </>) : (
                 <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 text-[11px] text-white/60 leading-relaxed">
                   <div className="font-bold tracking-widest text-white/60 mb-1">SEGUIMIENTOS Y NOTAS DE VOZ</div>
-                  Bloqueados hasta que el prospecto pida información. Si no contesta al teléfono, vuelve a llamar con el guion a otra hora (a primera hora o después de comer).
+                  {esBloqueado ? 'No hay seguimientos: esta clínica pidió que no se le contacte más.' : 'Bloqueados hasta que el prospecto pida información. Si no contesta al teléfono, vuelve a llamar con el guion a otra hora (a primera hora o después de comer).'}
                 </div>
               )}
 
@@ -1231,7 +1275,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   const yaContactado = (selectedLead.historial||[]).some(e=>e.tipo==='contacto');
                   registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo: yaContactado ? 'nota' : 'contacto', canal: canalEnvio, texto: yaContactado ? `Otro envío:\n${textoEnviado}` : textoEnviado },
                     yaContactado ? {} : { estado:'CONTACTADO', ultimoContacto:new Date().toISOString(), seguimientos:0 });
-                }} disabled={!selectedLead} className="w-full bg-white text-black font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-sm disabled:opacity-40">
+                }} disabled={!selectedLead || bloqueado(selectedLead)} className="w-full bg-white text-black font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-sm disabled:opacity-40">
                   <CheckCircle2 size={16}/> {(selectedLead?.historial||[]).some(e=>e.tipo==='contacto') ? 'YA CONTACTADO · GUARDAR OTRO ENVÍO' : 'MARCAR COMO CONTACTADO'}
                 </button>
                 {selectedLead && selectedLead.estado==='CONTACTADO' && (()=>{ const p = proximoPaso(selectedLead); return p.fecha ? <div className="mt-2 text-[11px] text-[#c6ff00]">Guardado en el historial. {p.tipo==='cerrar' ? 'Sin más seguimientos: cerrar' : `Próximo seguimiento: ${p.vencido ? 'hoy' : fechaCorta(p.fecha)}`}.</div> : null; })()}
@@ -1281,7 +1325,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   <div className="text-[11px] text-white/50 mb-2">ESTADO ACTUAL</div>
                   <div className="flex flex-wrap gap-1">
                     {(["FRIO","INTERACCION","PROBLEMA_DETECTADO","INTERES","CUALIFICADO","INTENCION_COMPRA","OFERTA_PRESENTADA","PAGO","NO_INTERESADO","SEGUIMIENTO","NO_CONTACTAR"] as EstadoCloser[]).map(e=>(
-                      <button key={e} onClick={()=>setEstadoCloser(e)} className={`px-2 py-1 rounded text-[10px] font-bold border ${estadoCloser===e ? 'bg-[#c6ff00] text-black border-[#c6ff00]' : 'bg-black border-white/10 text-white/40'}`}>{e}</button>
+                      <button key={e} onClick={()=>cambiarEstadoCloser(e)} className={`px-2 py-1 rounded text-[10px] font-bold border ${estadoCloser===e ? 'bg-[#c6ff00] text-black border-[#c6ff00]' : 'bg-black border-white/10 text-white/40'}`}>{e}</button>
                     ))}
                   </div>
                 </div>
