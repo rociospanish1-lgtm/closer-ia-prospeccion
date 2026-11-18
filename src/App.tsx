@@ -48,19 +48,19 @@ const euro = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: n
 
 // CONSTANTE EXACTA REQUERIDA
 const OBJECIONES_V4 = [
-  {key:'Prefiero humanos', estrategia:'Validar → explicar modelo híbrido → comprobar si ese enfoque encaja', queEvitar:'No intentar convencer de que la IA sustituye a las personas', ejemplo:'Entiendo perfectamente. La idea no es sustituir a vuestro equipo. El agente puede encargarse de las consultas repetitivas y pasar a una persona los casos que necesitan atención humana. Así el equipo se centra en lo importante.'},
-  {key:'Ya tengo WhatsApp', estrategia:'Diferenciar canal de comunicación frente a automatización → explicar qué añade el agente', queEvitar:'No decir que su WhatsApp no sirve ni minimizar su sistema actual', ejemplo:'Perfecto. WhatsApp seguiría siendo vuestro canal. La diferencia es que el agente puede responder automáticamente a las consultas habituales, informar sobre servicios y horarios y, cuando haga falta, derivar la conversación a vuestro equipo.'},
-  {key:'Es caro', estrategia:'Validar → entender qué está comparando → explicar el alcance si aporta valor → no defender el precio automáticamente', queEvitar:'No preguntar directamente por su presupuesto salvo que tenga sentido en el contexto. No inventar un retorno económico.', ejemplo:'Lo entiendo. Para valorar si realmente os compensa, lo importante es ver qué problema concreto queremos resolver y qué parte del trabajo puede automatizarse. Si quieres, te explico exactamente qué incluye y puedes valorar si encaja.'},
-  {key:'Me lo pienso', estrategia:'Clasificar como SEGUIMIENTO → aportar valor relacionado con la conversación → dejar espacio', queEvitar:'No preguntar "¿lo has pensado?", "¿te has decidido?" ni crear urgencia falsa', ejemplo:'Claro, sin problema. En vuestro caso, lo importante sería que el agente se encargara de [problema concreto] y derivara al equipo los casos que necesitan atención humana. Así podéis valorarlo con calma.'},
-  {key:'No me interesa', estrategia:'Clasificar como NO_INTERESADO → cerrar cordialmente → detener el proceso comercial', queEvitar:'No intentar darle la vuelta automáticamente ni presentar otra oferta', ejemplo:'Sin problema, gracias por decírmelo claro. Cierro aquí el tema. Que vaya todo genial con el negocio.'},
-  {key:'No me contactes más', estrategia:'Clasificar inmediatamente como NO_CONTACTAR → detener cualquier seguimiento o contacto comercial', queEvitar:'No hacer preguntas, no ofrecer alternativas y no intentar recuperar la venta', ejemplo:'Entendido. Cierro el tema y no volveré a contactarte por esto. Gracias por decírmelo.'},
-  {key:'¿Cuánto cuesta?', estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:'Por lo que hemos hablado, os encaja el plan [plan]: [cuota] €/mes + IVA y [alta] € + IVA de alta, que incluye montarlo, probarlo con vosotros y ajustarlo dos semanas. [retorno]Si quieres avanzar, te explico el siguiente paso.'},
-  {key:'No necesito IA', estrategia:'No discutir → entender si realmente no existe una necesidad o si simplemente no quiere utilizar IA → si no hay necesidad, cerrar', queEvitar:'No intentar convencer de que necesita IA', ejemplo:'Perfecto, lo entiendo. Al final lo importante no es utilizar IA por utilizarla, sino que resuelva un problema real. Si ahora mismo no tenéis esa necesidad, no tendría sentido añadir nada.'},
-  {key:'Ya tengo a alguien', estrategia:'Validar → diferenciar sustitución de apoyo → comprobar si existe alguna tarea repetitiva que actualmente recaiga sobre esa persona', queEvitar:'No cuestionar al empleado ni plantear la IA como sustitución automática', ejemplo:'Perfecto. De hecho, puede complementar perfectamente ese trabajo. La idea sería quitarle las consultas repetitivas y dejarle los casos que realmente necesitan intervención.'},
-  {key:'Ahora no', estrategia:'No presionar → identificar si es un problema de momento o falta de interés → si pide retomarlo más adelante, clasificar como SEGUIMIENTO', queEvitar:'No crear urgencia artificial', ejemplo:'Entendido, ningún problema. Si ahora no es el momento, lo dejamos aquí. Si más adelante quieres retomarlo, seguimos desde donde lo dejamos.'},
-  {key:'Ya usamos Booksy / agenda', estrategia:'Validar → preguntar dónde hace la clienta las dudas de antes de reservar → preguntar quién las contesta en cabina → aclarar que el agente no sustituye su agenda', queEvitar:'No criticar su agenda ni decir que deben cambiarla. No afirmar la conexión con su programa sin comprobarla.', ejemplo:'Genial, entonces la agenda la tenéis resuelta. Solo una pregunta: cuando una clienta duda antes de reservar [tratamiento] (cuánto cuesta, cuántas sesiones, si duele), ¿dónde os lo pregunta, en vuestra agenda o por WhatsApp? ¿Y quién le contesta si estáis en cabina? Lo que os enseñaría no cambia vuestra agenda: es justo esa duda de antes de reservar. ¿Con quién lo podría comentar 10 minutos?'},
-  {key:'Mándalo por email', estrategia:'Aceptar → preguntar qué quiere ver para que el email sea suyo → pedir email y nombre → dejar fijada la siguiente llamada', queEvitar:'No mandar un dosier genérico ni enlaces en el primer email. No colgar sin hora para volver a llamar.', ejemplo:'Claro, te lo mando. Para que no sea un email más: ¿qué te interesa ver, cómo contesta las dudas de [tratamiento] o cómo deja la cita apuntada? ¿A qué email y a nombre de quién? Te lo envío hoy y te llamo pasado mañana para comentarlo 10 minutos. ¿Mejor por la mañana o por la tarde?'},
-  {key:'No quiero cambiar nada', estrategia:'Validar → no intentar imponer un cambio → explicar únicamente si existe una mejora que pueda integrarse sin alterar la operativa actual', queEvitar:'No presentar el cambio como obligatorio', ejemplo:'Lo entiendo. Precisamente por eso, si algún día lo valoráis, la idea sería integrarlo en vuestra forma de trabajar sin tener que cambiar todo el sistema.'}
+  {key:'Prefiero humanos', destino:'SEGUIMIENTO' as EstadoCloser, estrategia:'Validar → explicar modelo híbrido → comprobar si ese enfoque encaja', queEvitar:'No intentar convencer de que la IA sustituye a las personas', ejemplo:'Entiendo perfectamente. La idea no es sustituir a vuestro equipo. El agente puede encargarse de las consultas repetitivas y pasar a una persona los casos que necesitan atención humana. Así el equipo se centra en lo importante.'},
+  {key:'Ya tengo WhatsApp', destino:'SEGUIMIENTO' as EstadoCloser, estrategia:'Diferenciar canal de comunicación frente a automatización → explicar qué añade el agente', queEvitar:'No decir que su WhatsApp no sirve ni minimizar su sistema actual', ejemplo:'Perfecto. WhatsApp seguiría siendo vuestro canal. La diferencia es que el agente puede responder automáticamente a las consultas habituales, informar sobre servicios y horarios y, cuando haga falta, derivar la conversación a vuestro equipo.'},
+  {key:'Es caro', destino:'SEGUIMIENTO' as EstadoCloser, estrategia:'Validar → entender qué está comparando → explicar el alcance si aporta valor → no defender el precio automáticamente', queEvitar:'No preguntar directamente por su presupuesto salvo que tenga sentido en el contexto. No inventar un retorno económico.', ejemplo:'Lo entiendo. Para valorar si realmente os compensa, lo importante es ver qué problema concreto queremos resolver y qué parte del trabajo puede automatizarse. Si quieres, te explico exactamente qué incluye y puedes valorar si encaja.'},
+  {key:'Me lo pienso', destino:'SEGUIMIENTO' as EstadoCloser, estrategia:'Clasificar como SEGUIMIENTO → aportar valor relacionado con la conversación → dejar espacio', queEvitar:'No preguntar "¿lo has pensado?", "¿te has decidido?" ni crear urgencia falsa', ejemplo:'Claro, sin problema. En vuestro caso, lo importante sería que el agente se encargara de [problema concreto] y derivara al equipo los casos que necesitan atención humana. Así podéis valorarlo con calma.'},
+  {key:'No me interesa', destino:'NO_INTERESADO' as EstadoCloser, estrategia:'Clasificar como NO_INTERESADO → cerrar cordialmente → detener el proceso comercial', queEvitar:'No intentar darle la vuelta automáticamente ni presentar otra oferta', ejemplo:'Sin problema, gracias por decírmelo claro. Cierro aquí el tema. Que vaya todo genial con el negocio.'},
+  {key:'No me contactes más', destino:'NO_CONTACTAR' as EstadoCloser, estrategia:'Clasificar inmediatamente como NO_CONTACTAR → detener cualquier seguimiento o contacto comercial', queEvitar:'No hacer preguntas, no ofrecer alternativas y no intentar recuperar la venta', ejemplo:'Entendido. Cierro el tema y no volveré a contactarte por esto. Gracias por decírmelo.'},
+  {key:'¿Cuánto cuesta?', destino:'INTENCION_COMPRA' as EstadoCloser, estrategia:'Si existe problema + encaje + contexto suficiente, responder directamente con el precio del servicio adecuado y explicar brevemente qué incluye', queEvitar:'No ocultar el precio innecesariamente ni enviar el enlace de pago a un prospecto que todavía está frío', ejemplo:'Por lo que hemos hablado, os encaja el plan [plan]: [cuota] €/mes + IVA y [alta] € + IVA de alta, que incluye montarlo, probarlo con vosotros y ajustarlo dos semanas. [retorno]Si quieres avanzar, te explico el siguiente paso.'},
+  {key:'No necesito IA', destino:'NO_INTERESADO' as EstadoCloser, estrategia:'No discutir → entender si realmente no existe una necesidad o si simplemente no quiere utilizar IA → si no hay necesidad, cerrar', queEvitar:'No intentar convencer de que necesita IA', ejemplo:'Perfecto, lo entiendo. Al final lo importante no es utilizar IA por utilizarla, sino que resuelva un problema real. Si ahora mismo no tenéis esa necesidad, no tendría sentido añadir nada.'},
+  {key:'Ya tengo a alguien', destino:'SEGUIMIENTO' as EstadoCloser, estrategia:'Validar → diferenciar sustitución de apoyo → comprobar si existe alguna tarea repetitiva que actualmente recaiga sobre esa persona', queEvitar:'No cuestionar al empleado ni plantear la IA como sustitución automática', ejemplo:'Perfecto. De hecho, puede complementar perfectamente ese trabajo. La idea sería quitarle las consultas repetitivas y dejarle los casos que realmente necesitan intervención.'},
+  {key:'Ahora no', destino:'SEGUIMIENTO' as EstadoCloser, estrategia:'No presionar → identificar si es un problema de momento o falta de interés → si pide retomarlo más adelante, clasificar como SEGUIMIENTO', queEvitar:'No crear urgencia artificial', ejemplo:'Entendido, ningún problema. Si ahora no es el momento, lo dejamos aquí. Si más adelante quieres retomarlo, seguimos desde donde lo dejamos.'},
+  {key:'Ya usamos Booksy / agenda', destino:'SEGUIMIENTO' as EstadoCloser, estrategia:'Validar → preguntar dónde hace la clienta las dudas de antes de reservar → preguntar quién las contesta en cabina → aclarar que el agente no sustituye su agenda', queEvitar:'No criticar su agenda ni decir que deben cambiarla. No afirmar la conexión con su programa sin comprobarla.', ejemplo:'Genial, entonces la agenda la tenéis resuelta. Solo una pregunta: cuando una clienta duda antes de reservar [tratamiento] (cuánto cuesta, cuántas sesiones, si duele), ¿dónde os lo pregunta, en vuestra agenda o por WhatsApp? ¿Y quién le contesta si estáis en cabina? Lo que os enseñaría no cambia vuestra agenda: es justo esa duda de antes de reservar. ¿Con quién lo podría comentar 10 minutos?'},
+  {key:'Mándalo por email', destino:'SEGUIMIENTO' as EstadoCloser, estrategia:'Aceptar → preguntar qué quiere ver para que el email sea suyo → pedir email y nombre → dejar fijada la siguiente llamada', queEvitar:'No mandar un dosier genérico ni enlaces en el primer email. No colgar sin hora para volver a llamar.', ejemplo:'Claro, te lo mando. Para que no sea un email más: ¿qué te interesa ver, cómo contesta las dudas de [tratamiento] o cómo deja la cita apuntada? ¿A qué email y a nombre de quién? Te lo envío hoy y te llamo pasado mañana para comentarlo 10 minutos. ¿Mejor por la mañana o por la tarde?'},
+  {key:'No quiero cambiar nada', destino:'SEGUIMIENTO' as EstadoCloser, estrategia:'Validar → no intentar imponer un cambio → explicar únicamente si existe una mejora que pueda integrarse sin alterar la operativa actual', queEvitar:'No presentar el cambio como obligatorio', ejemplo:'Lo entiendo. Precisamente por eso, si algún día lo valoráis, la idea sería integrarlo en vuestra forma de trabajar sin tener que cambiar todo el sistema.'}
 ];
 
 type EstadoLead = 'NUEVO' | 'CONTACTADO' | 'CALIENTE' | 'NO_INTERESADO' | 'NO_CONTACTAR';
@@ -122,6 +122,9 @@ interface Analisis {
 const ESTADOS_ORDEN: Record<string, number> = {
   FRIO: 0, INTERACCION: 1, PROBLEMA_DETECTADO: 2, INTERES: 3, CUALIFICADO: 4, INTENCION_COMPRA: 5, OFERTA_PRESENTADA: 6, PAGO: 7
 };
+
+const NOMBRE_DESTINO: Record<string, string> = { SEGUIMIENTO:'Seguimiento', NO_INTERESADO:'No interesado', NO_CONTACTAR:'No contactar', INTENCION_COMPRA:'Intención de compra' };
+const COLOR_DESTINO: Record<string, string> = { SEGUIMIENTO:'bg-amber-400/20 text-amber-300 border-amber-400/30', NO_INTERESADO:'bg-white/10 text-white/60 border-white/20', NO_CONTACTAR:'bg-red-500/20 text-red-300 border-red-500/30', INTENCION_COMPRA:'bg-[#c6ff00]/20 text-[#c6ff00] border-[#c6ff00]/30' };
 
 const CHECKLIST_ITEMS = [
   { id: 'sin_reservas', label: 'Sin reservas online', impact: 'Pierde citas fuera de horario' },
@@ -187,6 +190,7 @@ export default function App() {
   const [estadoCloser, setEstadoCloser] = useState<EstadoCloser>('FRIO');
   const [chatInput, setChatInput] = useState('');
   const [chatHist, setChatHist] = useState<MsgCloser[]>([]);
+  const [ultimaObjecion, setUltimaObjecion] = useState<string>('');
   const [problemaConcreto, setProblemaConcreto] = useState('gestión de citas fuera de horario');
   const [planId, setPlanId] = useState<PlanId>('pro');
   const [fasePago, setFasePago] = useState<'firma'|'activacion'>('firma');
@@ -573,7 +577,11 @@ export default function App() {
     const lower = text.toLowerCase();
     // orden especifico para matching
     if(lower.includes('no me contact') || lower.includes('no contactes')) return OBJECIONES_V4.find(o=>o.key==='No me contactes más')!;
-    if(lower.includes('no me interesa')) return OBJECIONES_V4.find(o=>o.key==='No me interesa')!;
+    // «De momento / por el momento» no es un no: es «ahora no» → seguimiento
+    if(/(de|por el) momento/.test(lower)) return OBJECIONES_V4.find(o=>o.key==='Ahora no')!;
+    if(lower.includes('no me interesa') || /no (nos|estamos) interesa/.test(lower)) return OBJECIONES_V4.find(o=>o.key==='No me interesa')!;
+    // «Lo contesto yo», «lo llevamos nosotras»… = ya tiene a alguien (y reconoce el problema)
+    if(/los? (contesto|hago|llevo|contestamos|hacemos|llevamos) (yo|nosotr[ao]s)|(yo|nosotr[ao]s) (lo|los) (contesto|contestamos|llevo|llevamos)/.test(lower)) return OBJECIONES_V4.find(o=>o.key==='Ya tengo a alguien')!;
     if(/booksy|treatwell|fresha|agenda|programa de citas|ya tenemos (un )?(programa|sistema)|nos va bien/.test(lower)) return OBJECIONES_V4.find(o=>o.key==='Ya usamos Booksy / agenda')!;
     if(/(m[aá]nd|env[ií])[a-z]*(lo|melo|noslo)?\s*(por|al)\s*(email|e-mail|mail|correo)|por (email|correo) mejor/.test(lower)) return OBJECIONES_V4.find(o=>o.key==='Mándalo por email')!;
     if(lower.includes('me lo pienso') || lower.includes('lo pienso')) return OBJECIONES_V4.find(o=>o.key==='Me lo pienso')!;
@@ -586,6 +594,33 @@ export default function App() {
     if(lower.includes('ahora no') || lower.includes('ahora mismo no') || lower.includes('más adelante')) return OBJECIONES_V4.find(o=>o.key==='Ahora no')!;
     if(lower.includes('no quiero cambiar')) return OBJECIONES_V4.find(o=>o.key==='No quiero cambiar nada')!;
     return null;
+  };
+
+  // Rellena los huecos del ejemplo de una objeción con los datos de la clínica seleccionada
+  const rellenarEjemplo = (obj: typeof OBJECIONES_V4[0]) => {
+    const precioVisto = selectedLead?.ficha?.precio;
+    const retorno = precioVisto ? `Con ${precioVisto.tratamiento} a ${precioVisto.euros} €, se paga con ${Math.ceil(plan.cuota / precioVisto.euros)} citas al mes. ` : '';
+    return obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto).replace(/\[plan\]/g, plan.nombre).replace(/\[cuota\]/g, euro(plan.cuota)).replace(/\[alta\]/g, euro(plan.alta)).replace(/\[retorno\]/g, retorno).replace(/\[tratamiento\]/g, tratamientoMsg);
+  };
+
+  // Clic en una tarjeta de «Referencia rápida»: aplica la objeción, mueve el lead a su destino
+  // (seguimiento / no interesado / no contactar / intención de compra) y lo apunta en el historial.
+  const aplicarObjecionRapida = (obj: typeof OBJECIONES_V4[0]) => {
+    if(obj.destino==='NO_CONTACTAR' && selectedLead && !window.confirm(`¿Marcar ${selectedLead.nombre} como NO CONTACTAR? Se bloquean los seguimientos y los mensajes.`)) return;
+    const textoProspecto = chatInput.trim() || `[${obj.key}]`;
+    const nuevoChat: MsgCloser[] = [
+      ...chatHist,
+      { role:'prospecto', text: textoProspecto, objecion: obj, estado: obj.destino },
+      { role:'ia', text: rellenarEjemplo(obj), objecion: obj, estado: obj.destino }
+    ];
+    setChatHist(nuevoChat);
+    setEstadoCloser(obj.destino);
+    setUltimaObjecion(obj.key);
+    setChatInput('');
+    if(selectedLead){
+      registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo:'nota', texto:`Objeción «${obj.key}» → ${NOMBRE_DESTINO[obj.destino] || obj.destino}.` });
+      guardarCloser(selectedLead.id, nuevoChat, obj.destino, chatInput.trim() || undefined);
+    }
   };
 
   const handleProspectChat = () => {
@@ -606,9 +641,7 @@ export default function App() {
       if(low.includes('interesa') || low.includes('cuéntame') || low.includes('más info')) newEstado='INTERES';
       else if(low.includes('ok') || low.includes('vale')) newEstado='INTERACCION';
     }
-    const precioVisto = selectedLead?.ficha?.precio;
-    const retorno = precioVisto ? `Con ${precioVisto.tratamiento} a ${precioVisto.euros} €, se paga con ${Math.ceil(plan.cuota / precioVisto.euros)} citas al mes. ` : '';
-    const ejemploConProblema = obj ? obj.ejemplo.replace(/\[problema concreto\]/g, problemaConcreto).replace(/\[resumen de lo incluido\]/g, concepto).replace(/\[plan\]/g, plan.nombre).replace(/\[cuota\]/g, euro(plan.cuota)).replace(/\[alta\]/g, euro(plan.alta)).replace(/\[retorno\]/g, retorno).replace(/\[tratamiento\]/g, tratamientoMsg) : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
+    const ejemploConProblema = obj ? rellenarEjemplo(obj) : `Perfecto, gracias por compartirlo. En vuestro caso con ${problemaConcreto}, ¿tiene sentido que veamos cómo encajaría?`;
 
     const nuevoChat: MsgCloser[] = [
       ...chatHist,
@@ -1364,13 +1397,14 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
               </div>
 
               <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-4">
-                <div className="font-bold text-[11px] tracking-widest text-white/50 mb-3">OBJECIONES V4 • REFERENCIA RÁPIDA</div>
+                <div className="font-bold text-[11px] tracking-widest text-white/50 mb-1">OBJECIONES V4 • REFERENCIA RÁPIDA</div>
+                <div className="text-[10px] text-white/40 mb-3">Toca la objeción que te ha dicho: se apunta en la clínica y el lead pasa a su casilla. Si pegas antes su mensaje en el chat, se guarda también.</div>
                 <div className="grid md:grid-cols-2 gap-2 max-h-[260px] overflow-auto">
                   {OBJECIONES_V4.map(o=>(
-                    <div key={o.key} className="p-2.5 bg-black rounded-xl border border-white/10">
-                      <div className="font-bold text-[11px] text-[#c6ff00]">{o.key}</div>
+                    <button key={o.key} onClick={()=>aplicarObjecionRapida(o)} title={`Clic: apunta la objeción y pasa el lead a ${NOMBRE_DESTINO[o.destino]}`} className={`text-left p-2.5 bg-black rounded-xl border hover:border-[#c6ff00]/60 transition ${ultimaObjecion===o.key ? 'border-[#c6ff00]' : 'border-white/10'}`}>
+                      <div className="flex items-center gap-2"><span className="font-bold text-[11px] text-[#c6ff00]">{o.key}</span><span className={`ml-auto text-[9px] px-1.5 py-0.5 rounded border font-bold ${COLOR_DESTINO[o.destino]}`}>→ {NOMBRE_DESTINO[o.destino]}</span></div>
                       <div className="text-[10px] text-white/60 mt-1">{o.estrategia.slice(0,90)}...</div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
