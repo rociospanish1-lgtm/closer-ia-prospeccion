@@ -72,6 +72,15 @@ const FUENTES_CONTACTO: { id: FuenteContacto; label: string }[] = [
 const nombreDePila = (n = '') => n.replace(/^\s*(Dra?\.?|Doctora?)\s+/i, '').trim().split(/\s+/)[0] || '';
 // Búsquedas que abre Rocío en su navegador (con su sesión de LinkedIn). La app no lee LinkedIn.
 const urlLinkedin = (clinica: string) => `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(clinica)}`;
+// Barrios y pueblos del área para el barrido «BUSCAR POR BARRIOS» (clave en minúsculas = ciudad del buscador)
+const ZONAS: Record<string, string[]> = {
+  sevilla: [
+    'Centro', 'Triana', 'Los Remedios', 'Nervión', 'Sevilla Este', 'Macarena', 'Heliópolis',
+    'Bellavista', 'San Bernardo', 'Pino Montano', 'Tomares', 'Mairena del Aljarafe', 'Bormujos',
+    'San Juan de Aznalfarache', 'Castilleja de la Cuesta', 'Dos Hermanas', 'Alcalá de Guadaíra', 'La Rinconada',
+  ],
+};
+
 const urlGoogleLinkedin = (clinica: string, ciudad: string) =>
   `https://www.google.com/search?q=${encodeURIComponent(`site:linkedin.com/in "${clinica}" ${ciudad} (director OR directora OR CEO OR gerente OR fundadora OR fundador OR propietaria)`)}`;
 type EstadoCloser = 'FRIO' | 'INTERACCION' | 'PROBLEMA_DETECTADO' | 'INTERES' | 'CUALIFICADO' | 'INTENCION_COMPRA' | 'OFERTA_PRESENTADA' | 'PAGO' | 'NO_INTERESADO' | 'SEGUIMIENTO' | 'NO_CONTACTAR';
@@ -165,6 +174,8 @@ export default function App() {
   });
   const [buscando, setBuscando] = useState(false);
   const [errorBusqueda, setErrorBusqueda] = useState('');
+  const [infoBusqueda, setInfoBusqueda] = useState('');
+  const [progresoZonas, setProgresoZonas] = useState('');
   const [selectedId, setSelectedId] = useState<string>('');
   const [showAdd, setShowAdd] = useState(false);
   const [newLead, setNewLead] = useState<Partial<Lead>>({ nombre: '', web: '', telefono: '', direccion: '', rating: '', reviews: '', instagram: '', estado: 'NUEVO' });
@@ -538,37 +549,85 @@ export default function App() {
     setAnalizandoTodos(false);
   };
 
+  // Una búsqueda en Google Places. «lugar» es lo que se manda a Google (ciudad, barrio o pueblo);
+  // el lead se guarda siempre con la ciudad del buscador para que el filtro de la lista lo muestre.
+  const buscarEnGoogle = async (lugar: string): Promise<Lead[]> => {
+    const r = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nicho, ciudad: lugar, keyword }),
+    });
+    const data = await r.json();
+    if(!r.ok) throw new Error(data?.error || 'Error en la búsqueda');
+    return (data.leads || []).map((p: any) => ({
+      id: `g-${p.id}`,
+      nombre: p.name,
+      web: p.web,
+      telefono: p.phone,
+      direccion: p.address,
+      rating: String(p.rating || 0),
+      reviews: String(p.reviews || 0),
+      estado: 'NUEVO' as EstadoLead,
+      nicho, ciudad
+    }));
+  };
+
+  // Mete en la lista solo los que no estaban y devuelve cuántos eran nuevos de verdad
+  const anadirNuevos = (encontrados: Lead[]) => {
+    const ids = new Set(leads.map(l => l.id));
+    const unicos = new Map<string, Lead>();
+    encontrados.forEach(l => { if(!ids.has(l.id) && !unicos.has(l.id)) unicos.set(l.id, l); });
+    const nuevos = [...unicos.values()];
+    if(nuevos.length) setLeads(prev => {
+      const yaEstan = new Set(prev.map(l => l.id));
+      return [...nuevos.filter(l => !yaEstan.has(l.id)), ...prev];
+    });
+    return nuevos.length;
+  };
+
   const handleBuscarReal = async () => {
     if(!nicho || !ciudad || buscando) return;
     setBuscando(true);
     setErrorBusqueda('');
+    setInfoBusqueda('');
     try {
-      const r = await fetch('/api/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nicho, ciudad, keyword }),
-      });
-      const data = await r.json();
-      if(!r.ok) throw new Error(data?.error || 'Error en la búsqueda');
-      const nuevos: Lead[] = (data.leads || []).map((p: any) => ({
-        id: `g-${p.id}`,
-        nombre: p.name,
-        web: p.web,
-        telefono: p.phone,
-        direccion: p.address,
-        rating: String(p.rating || 0),
-        reviews: String(p.reviews || 0),
-        estado: 'NUEVO' as EstadoLead,
-        nicho, ciudad
-      }));
-      setLeads(prev => {
-        const ids = new Set(prev.map(l => l.id));
-        return [...nuevos.filter(l => !ids.has(l.id)), ...prev];
-      });
-      if(nuevos.length === 0) setErrorBusqueda('Sin resultados para esa búsqueda.');
+      const encontrados = await buscarEnGoogle(ciudad);
+      const nuevos = anadirNuevos(encontrados);
+      if(encontrados.length === 0) setErrorBusqueda('Sin resultados para esa búsqueda.');
+      else if(nuevos === 0) setErrorBusqueda(`Google ha devuelto ${encontrados.length}, pero ya las tienes todas. Usa «BUSCAR POR BARRIOS» o cambia el nicho (p. ej. «medicina estética», «depilación láser»).`);
+      else setInfoBusqueda(`${nuevos} nuevas de ${encontrados.length} encontradas.`);
     } catch(e: any) {
       setErrorBusqueda(e.message || 'Error de conexión');
     } finally {
+      setBuscando(false);
+    }
+  };
+
+  // Barrido por barrios y pueblos: cada zona es una búsqueda distinta en Google,
+  // así salen clínicas que nunca aparecen en la búsqueda general de la ciudad.
+  const zonasCiudad = ZONAS[ciudad.trim().toLowerCase()] || [];
+  const handleBuscarPorZonas = async () => {
+    if(!nicho || !zonasCiudad.length || buscando) return;
+    setBuscando(true);
+    setErrorBusqueda('');
+    setInfoBusqueda('');
+    const encontrados: Lead[] = [];
+    let fallos = 0;
+    try {
+      for(let i = 0; i < zonasCiudad.length; i += 3) {
+        const tanda = zonasCiudad.slice(i, i + 3);
+        setProgresoZonas(`${Math.min(i + 3, zonasCiudad.length)}/${zonasCiudad.length}`);
+        const res = await Promise.allSettled(tanda.map(z => buscarEnGoogle(`${z}, ${ciudad}`)));
+        res.forEach(r => { if(r.status === 'fulfilled') encontrados.push(...r.value); else fallos++; });
+      }
+      if(fallos === zonasCiudad.length) throw new Error('No se ha podido consultar Google en ninguna zona.');
+      const nuevos = anadirNuevos(encontrados);
+      if(nuevos === 0) setErrorBusqueda('Barrido hecho: no hay clínicas nuevas con ese nicho. Prueba otro nicho («medicina estética», «centro de estética», «depilación láser», «micropigmentación»).');
+      else setInfoBusqueda(`Barrido por ${zonasCiudad.length} zonas: ${nuevos} clínicas nuevas añadidas arriba.${fallos ? ` (${fallos} zonas fallaron)` : ''}`);
+    } catch(e: any) {
+      setErrorBusqueda(e.message || 'Error de conexión');
+    } finally {
+      setProgresoZonas('');
       setBuscando(false);
     }
   };
@@ -833,6 +892,12 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                       </div>
                     </div>
                     {errorBusqueda && <div className="text-[11px] text-red-400 flex items-center gap-1"><AlertTriangle size={12}/> {errorBusqueda}</div>}
+                    {infoBusqueda && <div className="text-[11px] text-[#c6ff00] flex items-center gap-1"><CheckCircle2 size={12}/> {infoBusqueda}</div>}
+                    {zonasCiudad.length > 0 && (
+                      <button onClick={handleBuscarPorZonas} disabled={buscando} className="w-full disabled:opacity-50 bg-[#c6ff00] text-black font-bold text-[12px] py-2.5 rounded-lg flex items-center justify-center gap-2">
+                        <MapPin size={14}/> {progresoZonas ? `BUSCANDO ZONAS ${progresoZonas}...` : `BUSCAR POR BARRIOS (${zonasCiudad.length} ZONAS)`}
+                      </button>
+                    )}
                     <div className="flex gap-2 pt-1">
                       <button onClick={handleBuscarReal} disabled={buscando} className="flex-1 disabled:opacity-50 bg-white text-black font-bold text-[12px] py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-white/90">
                         <Search size={14}/> {buscando ? 'BUSCANDO...' : 'BUSCAR EN GOOGLE MAPS'}
