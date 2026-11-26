@@ -11,12 +11,22 @@ export interface Evento {
   texto?: string;
 }
 
+export type AutorMensaje = 'yo' | 'clinica';
+
 export interface LeadConHistorial {
   id: string;
   estado: string;
   ultimoContacto?: string;
   seguimientos?: number;
   historial?: Evento[];
+  // Control de conversaciones pendientes (se marca a mano, sin conectar con WhatsApp)
+  ultimoMensajeDe?: AutorMensaje;
+  ultimoMensajeFecha?: string; // ISO
+  ultimoMensajeCanal?: CanalEnvio;
+  proximoTexto?: string; // «Llamar a Belén»
+  proximoFecha?: string; // AAAA-MM-DD
+  pidioInfo?: boolean;
+  estadoCloser?: string;
 }
 
 const DIA = 86_400_000;
@@ -112,4 +122,66 @@ export function fusionar<T extends LeadConHistorial>(actuales: T[], copia: T[]):
   const ids = new Set(actuales.map((l) => l.id));
   const añadidos = [...porId.values()].filter((l) => !ids.has(l.id));
   return { leads: [...añadidos, ...actuales.map((l) => porId.get(l.id)!)], nuevos, actualizados };
+}
+
+
+// ───────── Conversaciones pendientes ─────────
+export const CANALES_CONTROL: CanalEnvio[] = ['whatsapp', 'llamada', 'email', 'instagram'];
+const CANALES_ESCRITOS: CanalEnvio[] = ['whatsapp', 'instagram', 'email'];
+
+export interface UltimoMensaje { de: AutorMensaje; fecha: string; canal?: CanalEnvio }
+
+// Último mensaje: lo marcado en la ficha; si no hay, se deduce del historial (contacto/seguimiento = yo, respuesta = clínica)
+export function ultimoMensaje(l: LeadConHistorial): UltimoMensaje | null {
+  if (l.ultimoMensajeDe && l.ultimoMensajeFecha && isFinite(Date.parse(l.ultimoMensajeFecha))) {
+    return { de: l.ultimoMensajeDe, fecha: l.ultimoMensajeFecha, canal: l.ultimoMensajeCanal };
+  }
+  const h = l.historial || [];
+  for (let i = h.length - 1; i >= 0; i--) {
+    const e = h[i];
+    if (e.tipo === 'respuesta') return { de: 'clinica', fecha: e.fecha, canal: e.canal };
+    if (e.tipo === 'contacto' || e.tipo === 'seguimiento') return { de: 'yo', fecha: e.fecha, canal: e.canal };
+  }
+  if (l.ultimoContacto) return { de: 'yo', fecha: l.ultimoContacto };
+  return null;
+}
+
+// No salen en Pendientes ni en Prioritarios: no interesadas, bloqueadas y las que ya han pagado
+export const fueraDeJuego = (l: { estado: string; estadoCloser?: string }) =>
+  l.estado === 'NO_INTERESADO' || l.estado === 'NO_CONTACTAR' || l.estadoCloser === 'PAGO';
+
+const inicioDia = (ms: number) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+// Días naturales entre una fecha y hoy (ayer = 1)
+export const diasDesde = (iso: string, ahora = Date.now()) => Math.round((inicioDia(ahora) - inicioDia(Date.parse(iso))) / DIA);
+export const hoyISO = (ahora = Date.now()) => {
+  const d = new Date(ahora);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// Canal propuesto cuando les escribiste hace 3 días o más y no han contestado
+export function proponerCanal(ultimo: CanalEnvio | undefined, pidioInfo?: boolean): { canal: CanalEnvio; motivo: string } {
+  if (ultimo && CANALES_ESCRITOS.includes(ultimo)) return { canal: 'llamada', motivo: `Escribiste por ${NOMBRE_CANAL[ultimo]} y no contesta: toca llamar.` };
+  if (ultimo === 'llamada' && pidioInfo) return { canal: 'whatsapp', motivo: 'Llamaste y no lo cogió: como pidió info, puedes escribirle por WhatsApp.' };
+  return { canal: 'llamada', motivo: 'Sin permiso para escribirle: vuelve a llamar a otra hora (primera hora o después de comer).' };
+}
+
+export interface FilaPendiente<T> { lead: T; ultimo: UltimoMensaje | null; dias: number; canalPropuesto?: { canal: CanalEnvio; motivo: string } }
+
+// Cada clínica sale en una sola lista, la de más prioridad
+export function calcularPendientes<T extends LeadConHistorial>(leads: T[], ahora = Date.now()) {
+  const contestaron: FilaPendiente<T>[] = [], hoy: FilaPendiente<T>[] = [], sinRespuesta: FilaPendiente<T>[] = [];
+  const hoyStr = hoyISO(ahora);
+  for (const lead of leads) {
+    if (fueraDeJuego(lead)) continue;
+    const ultimo = ultimoMensaje(lead);
+    const dias = ultimo ? diasDesde(ultimo.fecha, ahora) : 0;
+    if (ultimo?.de === 'clinica') { contestaron.push({ lead, ultimo, dias }); continue; }
+    if (lead.proximoFecha && lead.proximoFecha <= hoyStr) { hoy.push({ lead, ultimo, dias }); continue; }
+    if (ultimo?.de === 'yo' && dias >= 3) sinRespuesta.push({ lead, ultimo, dias, canalPropuesto: proponerCanal(ultimo.canal, lead.pidioInfo) });
+  }
+  const t = (f: FilaPendiente<T>) => (f.ultimo ? Date.parse(f.ultimo.fecha) : 0);
+  contestaron.sort((a, b) => t(a) - t(b)); // la que lleva más tiempo esperando, arriba
+  hoy.sort((a, b) => (a.lead.proximoFecha! < b.lead.proximoFecha! ? -1 : 1));
+  sinRespuesta.sort((a, b) => b.dias - a.dias);
+  return { contestaron, hoy, sinRespuesta, total: contestaron.length + hoy.length + sinRespuesta.length };
 }

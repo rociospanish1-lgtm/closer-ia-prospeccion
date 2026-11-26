@@ -30,7 +30,8 @@ function BloqueOfertas({ ofertas, tipos, descuentoMax }: { ofertas: { texto: str
     </div>
   );
 }
-import { Evento, CanalEnvio, migrar, proximoPaso, fechaCorta, canalSeguimiento, motivoCanal, bloqueado, coincideBloqueado, NOMBRE_CANAL } from './historial';
+import { Evento, CanalEnvio, AutorMensaje, migrar, proximoPaso, fechaCorta, canalSeguimiento, motivoCanal, bloqueado, coincideBloqueado, NOMBRE_CANAL, toquesSinRespuesta, fueraDeJuego, calcularPendientes } from './historial';
+import { ControlConversacion, PanelPendientes } from './Pendientes';
 import Historial from './Historial';
 
 // Planes de la agencia (rociopinedaia.es). Precios sin IVA.
@@ -116,6 +117,12 @@ interface Lead {
   pidioInfo?: boolean; // solo entonces se generan mensajes escritos (WhatsApp, Instagram, email)
   closerChat?: MsgCloser[]; // conversación del paso 4, guardada con su clínica
   estadoCloser?: EstadoCloser;
+  // Control de conversaciones pendientes
+  ultimoMensajeDe?: AutorMensaje;
+  ultimoMensajeFecha?: string;
+  ultimoMensajeCanal?: CanalEnvio;
+  proximoTexto?: string;
+  proximoFecha?: string;
 }
 
 interface Analisis {
@@ -232,7 +239,23 @@ export default function App() {
 
   // Añade una entrada al historial del lead (y aplica cambios de estado/fechas a la vez)
   const registrar = (id: string, ev: Evento, cambios: Partial<Lead> = {}) => {
-    setLeads(prev=>prev.map(x=>x.id===id ? {...x, ...cambios, historial:[...(x.historial||[]), ev]} : x));
+    // Contacto, seguimiento y respuesta actualizan también «último mensaje de / fecha / canal»
+    const sync: Partial<Lead> = ev.tipo==='contacto' || ev.tipo==='seguimiento' || ev.tipo==='respuesta'
+      ? { ultimoMensajeDe: ev.tipo==='respuesta' ? 'clinica' : 'yo', ultimoMensajeFecha: ev.fecha, ultimoMensajeCanal: ev.canal } : {};
+    setLeads(prev=>prev.map(x=>x.id===id ? {...x, ...sync, ...cambios, historial:[...(x.historial||[]), ev]} : x));
+  };
+  const actualizarLead = (id: string, cambios: Partial<Lead>) => setLeads(prev=>prev.map(x=>x.id===id ? {...x, ...cambios} : x));
+  // Botones «Le he escrito yo» / «Me ha contestado»: se marcan a mano, sin conexión con WhatsApp
+  const marcarMensaje = (l: Lead, de: AutorMensaje, canal: CanalEnvio) => {
+    const ahora = new Date().toISOString();
+    if(de==='clinica'){
+      registrar(l.id, { fecha:ahora, tipo:'respuesta', canal, texto:'Respuesta de la clínica (marcada a mano).' }, l.estado==='NUEVO' || l.estado==='CONTACTADO' ? { estado:'CALIENTE' } : {});
+      return;
+    }
+    const yaContactado = (l.historial||[]).some(e=>e.tipo==='contacto');
+    if(!yaContactado) registrar(l.id, { fecha:ahora, tipo:'contacto', canal, texto:'Le escribí yo (marcado a mano).' }, { estado:'CONTACTADO', ultimoContacto:ahora, seguimientos:0 });
+    else if(toquesSinRespuesta(l).length>0) registrar(l.id, { fecha:ahora, tipo:'seguimiento', canal, texto:'Le escribí yo (marcado a mano).' }, { ultimoContacto:ahora, seguimientos:(l.seguimientos||0)+1 });
+    else registrar(l.id, { fecha:ahora, tipo:'nota', canal, texto:'Le contesté yo (marcado a mano).' }, { ultimoContacto:ahora, ultimoMensajeDe:'yo', ultimoMensajeFecha:ahora, ultimoMensajeCanal:canal });
   };
   const marcarPidioInfo = (l: Lead, valor: boolean) => registrar(l.id, { fecha:new Date().toISOString(), tipo:'nota', texto: valor ? 'Pidió info: se le pueden enviar mensajes escritos.' : 'Quitada la marca «pidió info».' }, { pidioInfo: valor });
 
@@ -511,7 +534,7 @@ export default function App() {
 
   const [analizandoTodos, setAnalizandoTodos] = useState(false);
   const [progreso, setProgreso] = useState({ hecho: 0, total: 0 });
-  type Pestana = 'todos' | 'prioritarios' | 'sinweb' | 'web' | 'sinhuecos' | 'pendientes' | 'seguimiento';
+  type Pestana = 'todos' | 'prioritarios' | 'sinweb' | 'web' | 'sinhuecos' | 'pendientes' | 'seguimiento' | 'bandeja';
   const [pestana, setPestana] = useState<Pestana>('todos');
 
   const HUECOS_CLAVE = ['sin_whatsapp', 'sin_reservas'];
@@ -735,22 +758,25 @@ export default function App() {
     const n = l.seguimientos || 0;
     return n < 2 && d >= (n === 0 ? 3 : 4);
   };
-  const categoria = (l: Lead): Exclude<Pestana,'todos'|'seguimiento'> => {
+  const categoria = (l: Lead): Exclude<Pestana,'todos'|'seguimiento'|'bandeja'> => {
     if(!l.web) return 'sinweb';
     if(l.analisisEstado !== 'ok') return 'pendientes';
     if(puntosHuecos(l) > 0) return 'prioritarios';
     return (l.huecos || []).length > 0 ? 'web' : 'sinhuecos';
   };
   const conteos = useMemo(()=>{
-    const c = { todos: filteredLeads.length, prioritarios: 0, sinweb: 0, web: 0, sinhuecos: 0, pendientes: 0, seguimiento: 0 };
-    filteredLeads.forEach(l => { c[categoria(l)]++; if(tocaSeguimiento(l)) c.seguimiento++; });
+    const c = { todos: filteredLeads.length, prioritarios: 0, sinweb: 0, web: 0, sinhuecos: 0, pendientes: 0, seguimiento: 0, bandeja: 0 };
+    // No interesadas, bloqueadas y las que ya han pagado no cuentan como prioritarias
+    filteredLeads.forEach(l => { const cat = categoria(l); if(!(cat==='prioritarios' && fueraDeJuego(l))) c[cat]++; if(tocaSeguimiento(l)) c.seguimiento++; });
+    c.bandeja = calcularPendientes(filteredLeads).total;
     return c;
   },[filteredLeads]);
 
   const visibleLeads = useMemo(()=>{
     if(pestana === 'todos') return filteredLeads;
     if(pestana === 'seguimiento') return filteredLeads.filter(tocaSeguimiento);
-    const lista = filteredLeads.filter(l => categoria(l) === pestana);
+    if(pestana === 'bandeja') return [];
+    const lista = filteredLeads.filter(l => categoria(l) === pestana && !(pestana==='prioritarios' && fueraDeJuego(l)));
     if(pestana === 'prioritarios' || pestana === 'sinweb') {
       return lista.sort((a,b) => Number(!!b.telefono) - Number(!!a.telefono) || puntosHuecos(b) - puntosHuecos(a) || Number(b.reviews) - Number(a.reviews));
     }
@@ -941,6 +967,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   </div>
                   <div className="px-4 py-2 flex flex-wrap gap-1 border-b border-white/10">
                     {([
+                      ['bandeja','PENDIENTES'],
                       ['todos','TODOS'],
                       ['prioritarios','PRIORITARIOS'],
                       ['seguimiento','TOCA SEGUIMIENTO'],
@@ -952,6 +979,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                       <button key={id} onClick={()=>setPestana(id)} className={`px-3 py-1.5 rounded-lg font-bold text-[10px] border ${pestana===id ? 'bg-[#c6ff00] text-black border-[#c6ff00]' : 'bg-black text-white/70 border-white/15 hover:border-white/30'}`}>{label} · {conteos[id]}</button>
                     ))}
                   </div>
+                  {pestana==='bandeja' ? <PanelPendientes leads={filteredLeads} marcar={marcarMensaje} onAbrir={(l)=>seleccionar(l, 3)} /> : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-[12px]">
                       <thead className="text-[10px] text-white/40 border-b border-white/10">
@@ -998,6 +1026,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                     </table>
                     {visibleLeads.length===0 && <div className="p-12 text-center text-white/30 text-sm">{pestana==='todos' ? 'Sin leads. Busca en Google Maps o añade uno manualmente para empezar.' : pestana==='seguimiento' ? 'Nadie toca seguimiento ahora mismo.' : 'No hay leads en esta pestaña. Pulsa ANALIZAR TODOS para clasificarlos.'}</div>}
                   </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1231,6 +1260,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   <b className="text-red-300">NO CONTACTAR</b> · {selectedLead.nombre} pidió que no se le contacte más. No se le llama, no se le escribe y no tiene seguimientos (RGPD / LSSI). Solo si ella vuelve a escribirte, quita el bloqueo en la lista del paso 1.
                 </div>
               )}
+              {selectedLead && <ControlConversacion lead={selectedLead} marcar={marcarMensaje} actualizar={actualizarLead} bloqueada={bloqueado(selectedLead)} />}
               {selectedLead && !bloqueado(selectedLead) && (
                 <div className={`rounded-2xl p-4 border flex items-center gap-3 ${selectedLead.pidioInfo ? 'bg-[#25D366]/10 border-[#25D366]/40' : 'bg-white/[0.04] border-white/10'}`}>
                   <div className="flex-1 text-[11px] leading-relaxed">{selectedLead.pidioInfo
@@ -1372,7 +1402,7 @@ Las dos próximas semanas reviso las conversaciones y ajusto lo que haga falta.`
                   const textoEnviado = !escrito ? textoGuion : prospectTab==='email' ? emailTpl : waTpl;
                   const yaContactado = (selectedLead.historial||[]).some(e=>e.tipo==='contacto');
                   registrar(selectedLead.id, { fecha:new Date().toISOString(), tipo: yaContactado ? 'nota' : 'contacto', canal: canalEnvio, texto: yaContactado ? `Otro envío:\n${textoEnviado}` : textoEnviado },
-                    yaContactado ? {} : { estado:'CONTACTADO', ultimoContacto:new Date().toISOString(), seguimientos:0 });
+                    yaContactado ? { ultimoMensajeDe:'yo', ultimoMensajeFecha:new Date().toISOString(), ultimoMensajeCanal:canalEnvio } : { estado:'CONTACTADO', ultimoContacto:new Date().toISOString(), seguimientos:0 });
                 }} disabled={!selectedLead || bloqueado(selectedLead)} className="w-full bg-white text-black font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-sm disabled:opacity-40">
                   <CheckCircle2 size={16}/> {(selectedLead?.historial||[]).some(e=>e.tipo==='contacto') ? 'YA CONTACTADO · GUARDAR OTRO ENVÍO' : 'MARCAR COMO CONTACTADO'}
                 </button>
